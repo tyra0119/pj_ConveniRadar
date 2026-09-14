@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=b42fc3b1">
+  <link rel="stylesheet" href="css/app.css?v=bf41d249">
 </head>
 <body>
   <header class="topbar">
@@ -19,14 +19,14 @@
 
   <main class="panel">
     <nav class="tabs" aria-label="画面の切り替え">
-      <button class="tab" type="button" data-tab="search" aria-selected="true"><span class="tab-icon">🔍</span>探す<span id="tab-badge-search" class="tab-badge"></span></button>
-      <button class="tab" type="button" data-tab="stores" aria-selected="false"><span class="tab-icon">🏪</span>店舗<span id="tab-badge-stores" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="stores" aria-selected="true"><span class="tab-icon">🏪</span>店舗<span id="tab-badge-stores" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="search" aria-selected="false"><span class="tab-icon">🔍</span>探す<span id="tab-badge-search" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="plan" aria-selected="false"><span class="tab-icon">🗓</span>計画<span id="tab-badge-plan" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="nav" aria-selected="false"><span class="tab-icon">🚶</span>巡回<span id="tab-badge-nav" class="tab-badge"></span></button>
     </nav>
 
-    <section class="card active" data-panel="search">
-      <h2><span class="step">1</span>どこを回るか</h2>
+    <section class="card" data-panel="search">
+      <h2><span class="step">2</span>どこを回るか</h2>
       <div class="mode-switch" role="group" aria-label="探し方">
         <button class="mode-btn" type="button" data-mode="area" aria-pressed="false">🧭 エリア検索</button>
         <button class="mode-btn" type="button" data-mode="station" aria-pressed="true">🚉 駅検索</button>
@@ -36,8 +36,8 @@
       <div class="card-body" data-mode-panel="area">
         <p class="muted small">中心と半径の中から、回る駅・バス停と店を自動で選びます。</p>
         <div class="row wrap">
-          <button id="btn-area-locate" class="btn primary" type="button">📍 現在地を中心に</button>
-          <button id="btn-area-mapcenter" class="btn" type="button">🗺 地図の中心を中心に</button>
+          <button id="btn-area-locate" class="btn toggle" type="button" aria-pressed="false">📍 現在地を中心に</button>
+          <button id="btn-area-mapcenter" class="btn toggle" type="button" aria-pressed="false">🗺 地図の中心を中心に</button>
         </div>
         <p id="area-center" class="muted small"></p>
         <label class="field">
@@ -81,11 +81,12 @@
         <button id="btn-clear-trip" class="btn block ghost" type="button">行程を空にする</button>
       </div>
 
-      <button class="btn primary block" type="button" data-goto="stores">次へ：店舗へ →</button>
+      <button class="btn primary block" type="button" data-goto="plan">次へ：計画へ →</button>
     </section>
 
-    <section class="card" data-panel="stores">
-      <h2><span class="step">2</span>コンビニの種類 <span id="store-count" class="badge"></span></h2>
+    <section class="card active" data-panel="stores">
+      <h2><span class="step">1</span>コンビニの種類</h2>
+      <p class="muted small">回るコンビニを選んでください。</p>
 
       <div class="chains">
         <label><input type="checkbox" name="chain" value="lawson"> <span class="chain-icon" data-chain="lawson"></span>ローソン</label>
@@ -95,14 +96,7 @@
         <label><input type="checkbox" name="chain" value="newdays"> <span class="chain-icon" data-chain="newdays"></span>NewDays</label>
       </div>
 
-      <h3 class="subhead">回る店</h3>
-      <p class="muted small">チェックを外した店舗は計画から除外されます。駅検索では、駅を足すと自動で店を探し、いちばん近い駅に割り当てます。エリア検索では、計画を作ると選んだ駅ごとに出ます。</p>
-      <div id="store-tools" class="list-tools" hidden>
-        <button class="btn small ghost" type="button" data-action="open-all">▾ すべて開く</button>
-        <button class="btn small ghost" type="button" data-action="close-all">▸ すべて閉じる</button>
-      </div>
-      <ul id="store-list" class="store-list"></ul>
-      <button class="btn primary block" type="button" data-goto="plan">次へ：計画へ →</button>
+      <button class="btn primary block" type="button" data-goto="search">次へ：探す →</button>
     </section>
 
     <section class="card" data-panel="plan">
@@ -123,6 +117,15 @@
         <div class="row"><input id="plan-deadline" type="time"><button id="btn-clear-deadline" class="btn small ghost" type="button">なし</button></div>
       </label>
       <label class="check"><input id="skip-recorded" type="checkbox"> 記録済み（購入・売切れ等）の店舗を除く</label>
+
+      <h3 class="subhead">回る店 <span id="store-count" class="badge"></span></h3>
+      <p class="muted small">チェックを外した店舗は計画から除外されます。駅検索では、駅を足すと自動で店を探し、いちばん近い駅に割り当てます。エリア検索では、計画を作ると選んだ駅ごとに出ます。</p>
+      <div id="store-tools" class="list-tools" hidden>
+        <button class="btn small ghost" type="button" data-action="open-all">▾ すべて開く</button>
+        <button class="btn small ghost" type="button" data-action="close-all">▸ すべて閉じる</button>
+      </div>
+      <ul id="store-list" class="store-list"></ul>
+
       <button id="btn-plan" class="btn primary block" type="button">🗓 計画を作る</button>
       <div id="area-summary"></div>
       <div id="plan-summary"></div>
@@ -180,9 +183,10 @@
     </footer>
   </main>
 
+  <div id="busy" class="busy-banner" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span id="busy-text"></span></div>
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=b42fc3b1"></script>
+  <script type="module" src="js/app.js?v=bf41d249"></script>
 </body>
 </html>

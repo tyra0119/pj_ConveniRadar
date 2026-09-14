@@ -485,6 +485,38 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
 .mode-btn[aria-pressed="true"] { color: #fff; background: var(--primary); }
 [data-mode-panel]:not(.active) { display: none; }
 .row.wrap { flex-wrap: wrap; }
+
+/* 選択式のボタン（エリア検索の中心: 現在地／地図の中心） */
+.btn.toggle[aria-pressed="true"] { color: #fff; background: var(--primary); border-color: var(--primary); }
+
+/* 検索中・計算中の表示（app.js の setBusy）。操作できない理由を画面の上に出す */
+.busy-banner {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  left: 50%;
+  z-index: 2100;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: calc(100% - 24px);
+  padding: 10px 16px;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(11, 114, 133, .96);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
+  transform: translateX(-50%);
+}
+.spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, .4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .subhead { margin: 6px 0 0; font-size: 14px; }
 .card-body { display: flex; flex-direction: column; gap: 10px; }
 
