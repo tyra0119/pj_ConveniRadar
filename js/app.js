@@ -1,9 +1,9 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=4fa1e28a';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=4fa1e28a';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=4fa1e28a';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=4fa1e28a';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=4fa1e28a';
+import { ODPT_SOURCES } from './config.js?v=15344496';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=15344496';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=15344496';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=15344496';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=15344496';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -21,6 +21,7 @@ const DEFAULTS = {
   excluded: {}, // { storeId: true }
   records: {}, // { くじ名: { storeId: { status, note, at } } }
   plan: null,
+  ui: { tab: 'trip', openGroups: {} }, // 表示中のタブ、店舗一覧で開いている駅 { 駅ID: true/false }
 };
 
 const db = load();
@@ -33,7 +34,7 @@ function load() {
     // 旧形式（検索した駅の一覧と半径を別々に保存）から移す
     const { searchedStations = [], searchedRadius = 0, ...rest } = raw;
     const searched = raw.searched ?? Object.fromEntries(searchedStations.map((id) => [id, searchedRadius]));
-    return { ...base, ...rest, searched, settings: { ...base.settings, ...raw.settings } };
+    return { ...base, ...rest, searched, settings: { ...base.settings, ...raw.settings }, ui: { ...base.ui, ...raw.ui } };
   } catch {
     return base;
   }
@@ -343,10 +344,12 @@ async function computePlan(fromIndex = 0, useNow = false) {
     day: await dayProfile(date),
   });
   db.plan = { ...plan, fromIndex, date, startTime, stale: false };
+  planOpen.clear();
   save();
   renderAll();
   fitPlan();
   refreshTrainInfo();
+  setTab('nav');
   toast(plan.complete ? `${plan.visited}店舗・${plan.stops.length}駅の計画を作りました` : `途中までしか計画できませんでした。${plan.error}`, plan.complete ? 5000 : 12000);
 }
 
@@ -496,6 +499,7 @@ function renderAll() {
 function renderTrip() {
   layers.trip.clearLayers();
   $('#trip-count').textContent = db.trip.length ? `${db.trip.length}駅` : '';
+  $('#tab-badge-trip').textContent = db.trip.length ? `${db.trip.length}駅` : '';
   const list = $('#trip-list');
   if (!db.trip.length) {
     list.innerHTML = '<li class="empty">まだ駅がありません</li>';
@@ -589,6 +593,18 @@ function fillRangeSelects() {
   $('#btn-add-range').disabled = !rw;
 }
 
+// 店舗一覧で、その駅の店を開いて見せるか。駅が 1 つなら開き、2 つ以上なら閉じておく（押すと開く）
+function isGroupOpen(id) {
+  return db.ui.openGroups[id] ?? new Set(db.trip.map((t) => t.id)).size < 2;
+}
+
+// 巡回の一覧は、いま回っている駅（まだ回っていない店がある最初の駅）だけを開く。利用者が開閉した駅はそれに従う
+const planOpen = new Map(); // 計画の駅の番号 → 開いているか。計画を作り直したら消す
+function currentPlanStop(p, records) {
+  return p.stops.findIndex((s) => s.visits.some((v) => !records[v.store.id]?.status));
+}
+const isStopOpen = (i, current) => (planOpen.has(i) ? planOpen.get(i) : i === current);
+
 // 半径や駅を変えたあと、店舗を検索し直す必要があるかを半径スライダーのすぐ下に出す
 let radiusDragging = false;
 function renderStoreHint(pending) {
@@ -628,6 +644,8 @@ function renderStores() {
 
   const all = groups.flat();
   $('#store-count').textContent = all.length ? `${all.filter((s) => !db.excluded[s.id]).length} / ${all.length}` : '';
+  $('#tab-badge-stores').textContent = all.length ? `${all.filter((s) => !db.excluded[s.id]).length}店` : '';
+  $('#store-tools').hidden = !db.searchedAt || new Set(db.trip.map((t) => t.id)).size < 2;
   const pending = new Set(unsearchedStations().map((s) => s.id));
   renderStoreHint(pending);
 
@@ -640,15 +658,22 @@ function renderStores() {
   const firstIndex = (i) => db.trip.findIndex((t) => t.id === db.trip[i].id) === i;
   list.innerHTML = groups.map((g, i) => {
     if (!firstIndex(i)) return '';
+    const id = db.trip[i].id;
     const allOff = g.length && g.every((s) => db.excluded[s.id]);
+    const opened = isGroupOpen(id);
     const head = `
       <li class="group" data-index="${i}">
-        <span class="num" style="--c:var(--primary)">${i + 1}</span>${esc(stationName(db.trip[i].id))}
-        ${pending.has(db.trip[i].id)
-          ? `<span class="small warn">${autoSearching ? '検索中…' : '未検索'}</span>`
-          : `<span class="muted small">${g.length}店</span>`}
+        <button class="group-toggle" type="button" data-action="toggle-group" aria-expanded="${opened}">
+          <span class="chev">${opened ? '▾' : '▸'}</span>
+          <span class="num" style="--c:var(--primary)">${i + 1}</span>
+          <span class="group-name">${esc(stationName(id))}</span>
+          ${pending.has(id)
+            ? `<span class="small warn">${autoSearching ? '検索中…' : '未検索'}</span>`
+            : `<span class="muted small">${g.filter((s) => !db.excluded[s.id]).length}/${g.length}店</span>`}
+        </button>
         ${g.length ? `<button class="btn small ghost" type="button" data-action="group">${allOff ? 'すべて含める' : 'すべて外す'}</button>` : ''}
       </li>`;
+    if (!opened) return head;
     return head + g.map((s) => {
       const excluded = !!db.excluded[s.id];
       const st = STATUSES[records[s.id]?.status];
@@ -706,11 +731,16 @@ const destLabel = (dest) =>(dest?.length ? `${dest.map(stationName).join('・')}
 function renderPlan() {
   layers.route.clearLayers();
   const p = db.plan;
-  $('#nav-card').hidden = !p;
+  $('#nav-empty').hidden = !!p;
+  $('#nav-body').hidden = !p;
   if (!p) {
     $('#plan-summary').innerHTML = '';
+    $('#progress').textContent = '';
+    $('#tab-badge-plan').textContent = '';
+    $('#tab-badge-nav').textContent = '';
     return;
   }
+  $('#tab-badge-plan').textContent = p.stale ? '⚠ 古い' : !p.complete ? '⚠ 途中まで' : `${fmtMin(p.endMin)}終了`;
 
   const records = currentRecords();
   const rides = p.stops.map((s) => s.ride).filter(Boolean);
@@ -767,6 +797,7 @@ function renderPlan() {
   const visits = p.stops.flatMap((s) => s.visits);
   const doneCount = visits.filter((v) => records[v.store.id]?.status).length;
   $('#progress').textContent = `${doneCount} / ${visits.length} 完了`;
+  $('#tab-badge-nav').textContent = `${doneCount}/${visits.length}`;
 
   const next = visits.find((v) => !records[v.store.id]?.status);
   const btnNext = $('#btn-next');
@@ -776,19 +807,27 @@ function renderPlan() {
   else btnNext.removeAttribute('href');
 
   let n = 0;
+  const current = currentPlanStop(p, records);
   $('#plan-list').innerHTML = p.stops.map((s, i) => {
     const tripIndex = tripIndexOf(s.stationId, p.fromIndex + i);
+    const doneHere = s.visits.filter((v) => records[v.store.id]?.status).length;
+    const opened = s.visits.length > 0 && isStopOpen(i, current);
     const head = `
-      <li class="tl-station">
-        <span class="num" style="--c:var(--primary)">${tripIndex >= 0 ? tripIndex + 1 : '—'}</span>
-        <div class="stop-info">
-          <div class="store-name">${esc(stationName(s.stationId))}</div>
-          <div class="muted small">${fmtMin(s.arrive)}${i === 0 ? 'から' : '着'} ・ ${s.visits.length ? `${s.visits.length}店` : '店なし'}</div>
-        </div>
+      <li class="tl-station${i === current ? ' current' : ''}">
+        <button class="stop-toggle" type="button" data-action="toggle-stop" data-stop="${i}" aria-expanded="${opened}"${s.visits.length ? '' : ' disabled'}>
+          <span class="chev">${s.visits.length ? (opened ? '▾' : '▸') : ''}</span>
+          <span class="num" style="--c:var(--primary)">${tripIndex >= 0 ? tripIndex + 1 : '—'}</span>
+          <span class="stop-info">
+            <span class="store-name">${esc(stationName(s.stationId))} ${i === current ? '<span class="here">回っている駅</span>' : ''}</span>
+            <span class="muted small">${fmtMin(s.arrive)}${i === 0 ? 'から' : '着'} ・ ${s.visits.length ? `完了 ${doneHere}/${s.visits.length}店` : '店なし'}</span>
+          </span>
+        </button>
         ${tripIndex >= 0 ? `<button class="btn small" type="button" data-action="replan" data-index="${tripIndex}" title="この駅から、今の時刻で残りを組み直す">🔄 今からここで</button>` : ''}
       </li>`;
 
-    const stores = s.visits.map((v) => {
+    // 閉じている駅は、店の行と「駅へ戻る」を出さない（番号は通しで数える）
+    if (!opened) n += s.visits.length;
+    const stores = !opened ? '' : s.visits.map((v) => {
       n++;
       const rec = records[v.store.id];
       return `
@@ -808,7 +847,7 @@ function renderPlan() {
         </li>`;
     }).join('');
 
-    const back = s.backLeg
+    const back = opened && s.backLeg
       ? `<li class="tl-walk">🚶 駅へ戻る ${fmtDur(s.backLeg.min * 60)}（${fmtDist(s.backLeg.dist)}）→ ${fmtMin(s.ready)} 駅着</li>`
       : '';
 
@@ -973,7 +1012,25 @@ $('#store-list').addEventListener('change', (e) => {
   if (id && e.target.dataset.action === 'toggle') toggleExcluded(id);
 });
 
+$('#store-tools').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  for (const t of db.trip) db.ui.openGroups[t.id] = btn.dataset.action === 'open-all';
+  save();
+  renderStores();
+});
+
 $('#store-list').addEventListener('click', (e) => {
+  const toggle = e.target.closest('button[data-action=toggle-group]');
+  if (toggle) {
+    const id = db.trip[Number(toggle.closest('[data-index]').dataset.index)]?.id;
+    if (id) {
+      db.ui.openGroups[id] = !isGroupOpen(id);
+      save();
+      renderStores();
+    }
+    return;
+  }
   const groupBtn = e.target.closest('button[data-action=group]');
   if (groupBtn) {
     // 駅の店を一括で外す／含める。1 店でも含まれていれば「外す」
@@ -1007,6 +1064,10 @@ $('#plan-list').addEventListener('click', (e) => {
   if (btn.dataset.action === 'status') {
     const id = btn.closest('[data-id]')?.dataset.id;
     if (id) setStatus(id, btn.dataset.status);
+  } else if (btn.dataset.action === 'toggle-stop') {
+    const i = Number(btn.dataset.stop);
+    planOpen.set(i, !isStopOpen(i, currentPlanStop(db.plan, currentRecords())));
+    renderPlan();
   } else if (btn.dataset.action === 'replan') {
     withBusy(btn, '確認中…', () => computePlan(Number(btn.dataset.index), true));
   }
@@ -1023,10 +1084,40 @@ document.addEventListener('click', (e) => {
   if (btn) withBusy(btn, '更新中…', () => refreshTrainInfo(true));
 });
 
+// ===== タブ =====
+// 4 枚のカードを縦に並べると、駅が多いときに長くなりすぎて操作しにくい（2026-09-14 利用者の指摘）ので 1 枚ずつ出す
+const TABS = ['trip', 'stores', 'plan', 'nav'];
+function setTab(name) {
+  const tab = TABS.includes(name) ? name : 'trip';
+  db.ui.tab = tab;
+  save();
+  document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  document.querySelectorAll('.panel > [data-panel]').forEach((s) => s.classList.toggle('active', s.dataset.panel === tab));
+  // 切り替えた画面の先頭が見えるように戻す（PC はパネルだけがスクロールし、スマホは画面全体がスクロールする）
+  const panel = $('.panel');
+  if (getComputedStyle(panel).overflowY === 'auto') {
+    panel.scrollTop = 0;
+  } else {
+    const top = panel.getBoundingClientRect().top + window.scrollY;
+    if (window.scrollY > top) window.scrollTo({ top });
+  }
+}
+
+$('.tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab');
+  if (btn) setTab(btn.dataset.tab);
+});
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-goto]');
+  if (btn) setTab(btn.dataset.goto);
+});
+
 // ===== 起動 =====
 document.querySelectorAll('.chain-icon[data-chain]').forEach((el) => { el.innerHTML = CHAINS[el.dataset.chain].icon; });
 syncControls();
 renderAll();
+setTab(db.ui.tab);
 
 if (!ODPT_SOURCES.pub.key && ODPT_SOURCES.pub.base.includes('api.odpt.org')) {
   toast('ODPT のキーが設定されていません。手元では python tools/serve.py で起動してください', 10000);

@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=4fa1e28a">
+  <link rel="stylesheet" href="css/app.css?v=15344496">
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,14 @@
   <div id="map"></div>
 
   <main class="panel">
-    <section class="card">
+    <nav class="tabs" aria-label="画面の切り替え">
+      <button class="tab" type="button" data-tab="trip" aria-selected="true"><span class="tab-icon">🚉</span>駅<span id="tab-badge-trip" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="stores" aria-selected="false"><span class="tab-icon">🏪</span>店舗<span id="tab-badge-stores" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="plan" aria-selected="false"><span class="tab-icon">🗓</span>計画<span id="tab-badge-plan" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="nav" aria-selected="false"><span class="tab-icon">🚶</span>巡回<span id="tab-badge-nav" class="tab-badge"></span></button>
+    </nav>
+
+    <section class="card active" data-panel="trip">
       <h2><span class="step">1</span>回る駅 <span id="trip-count" class="badge"></span></h2>
       <input id="station-search" type="search" placeholder="駅名で検索して追加" autocomplete="off">
       <ul id="station-results" class="results"></ul>
@@ -36,10 +43,11 @@
       <p class="muted small">地図を拡大すると駅が表示され、タップして追加できます。上から順に回ります。</p>
       <ol id="trip-list" class="trip-list"></ol>
       <div class="train-info"></div>
+      <button class="btn block" type="button" data-goto="stores">次へ：駅の近くの店舗を探す →</button>
       <button id="btn-clear-trip" class="btn block ghost" type="button">行程を空にする</button>
     </section>
 
-    <section class="card">
+    <section class="card" data-panel="stores">
       <h2><span class="step">2</span>駅の近くの店舗 <span id="store-count" class="badge"></span></h2>
       <label class="field">
         <span>駅から半径 <output id="radius-out">600</output> m（徒歩 約<output id="radius-walk">10</output>分）</span>
@@ -57,10 +65,15 @@
 
       <button id="btn-search" class="btn primary block" type="button">🔍 店舗を検索</button>
       <p class="muted small">チェックを外した店舗は計画から除外されます。店舗は、いちばん近い行程の駅に割り当てます。</p>
+      <div id="store-tools" class="list-tools" hidden>
+        <button class="btn small ghost" type="button" data-action="open-all">▾ すべて開く</button>
+        <button class="btn small ghost" type="button" data-action="close-all">▸ すべて閉じる</button>
+      </div>
       <ul id="store-list" class="store-list"></ul>
+      <button class="btn block" type="button" data-goto="plan">次へ：計画を作る →</button>
     </section>
 
-    <section class="card">
+    <section class="card" data-panel="plan">
       <h2><span class="step">3</span>計画を作る</h2>
       <label class="field">
         <span>くじ・グッズ名（記録の単位）</span>
@@ -78,13 +91,16 @@
       <div id="plan-summary"></div>
     </section>
 
-    <section id="nav-card" class="card" hidden>
+    <section id="nav-card" class="card" data-panel="nav">
       <h2><span class="step">4</span>巡回 <span id="progress" class="badge"></span></h2>
-      <div id="stale-banner" class="stale-banner" hidden></div>
-      <a id="btn-next" class="btn accent block big" target="_blank" rel="noopener"></a>
-      <div class="train-info"></div>
-      <ol id="plan-list" class="route-list"></ol>
-      <button id="btn-reset-records" class="btn block ghost" type="button">このくじの記録をリセット</button>
+      <p id="nav-empty" class="empty">「計画」タブで計画を作ると、回る順番がここに出ます</p>
+      <div id="nav-body" class="card-body" hidden>
+        <div id="stale-banner" class="stale-banner" hidden></div>
+        <a id="btn-next" class="btn accent block big" target="_blank" rel="noopener"></a>
+        <div class="train-info"></div>
+        <ol id="plan-list" class="route-list"></ol>
+        <button id="btn-reset-records" class="btn block ghost" type="button">このくじの記録をリセット</button>
+      </div>
     </section>
 
     <footer class="muted small attribution">
@@ -111,6 +127,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=4fa1e28a"></script>
+  <script type="module" src="js/app.js?v=15344496"></script>
 </body>
 </html>

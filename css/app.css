@@ -435,5 +435,64 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
 .info.notice .info-status, .info.none .info-status { color: var(--muted); }
 .info .small { flex-basis: 100%; }
 
+/* タブ: カードを 1 枚ずつ出す（駅が多いと縦に長くなりすぎるため） */
+.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 4px;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 4px rgba(20, 30, 50, .15);
+}
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 2px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 8px;
+}
+.tab-icon { font-size: 17px; }
+.tab-badge { min-height: 1.3em; font-size: 11px; font-weight: 400; }
+.tab[aria-selected="true"] { color: #fff; background: var(--primary); }
+.panel > [data-panel]:not(.active) { display: none; }
+.card-body { display: flex; flex-direction: column; gap: 10px; }
+
+/* 駅ごとの折りたたみ（店舗一覧・巡回） */
+.list-tools { display: flex; gap: 6px; justify-content: flex-end; }
+.chev { flex: none; width: 12px; color: var(--muted); }
+.group-toggle, .stop-toggle {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.group-toggle { font-weight: 700; }
+.group-toggle .group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stop-toggle { gap: 10px; }
+.stop-toggle:disabled { cursor: default; }
+.stop-toggle .stop-info { display: flex; flex-direction: column; }
+.tl-station.current { background: linear-gradient(90deg, rgba(11, 114, 133, .08), transparent); }
+.here { padding: 0 6px; font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 999px; }
+
 .attribution { display: flex; flex-direction: column; gap: 6px; }
 .attribution p { margin: 0; }
