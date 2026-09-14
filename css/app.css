@@ -109,7 +109,7 @@ a { color: var(--primary); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 /* ===== フォーム ===== */
-input[type="search"], input[type="text"], input[type="number"], input[type="time"], select {
+input[type="search"], input[type="text"], input[type="number"], input[type="time"], input[type="date"], input[type="email"], select {
   width: 100%;
   padding: 8px 10px;
   font: inherit;
@@ -425,6 +425,12 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
 /* 計画が古くなったとき */
 .stale-banner { display: flex; flex-direction: column; gap: 8px; padding: 10px; font-size: 13.5px; color: var(--warn); background: #fff4e6; border: 1px solid #ffc078; border-radius: 10px; }
 #nav-card.stale #plan-list, #nav-card.stale #btn-next { opacity: .5; }
+
+/* 実績を送る */
+.report { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--bg); border-radius: 10px; }
+.report-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.report-actions .btn { flex: 1; }
+.report-preview { max-height: 240px; margin: 6px 0 0; padding: 8px; overflow: auto; font: 12px/1.5 inherit; white-space: pre-wrap; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
 
 /* 運行情報 */
 .train-info { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--bg); border-radius: 10px; }

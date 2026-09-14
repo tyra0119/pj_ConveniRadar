@@ -1,10 +1,11 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=9beb78a2';
-import { busData, loadBus } from './bus.js?v=9beb78a2';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=9beb78a2';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=9beb78a2';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=9beb78a2';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=9beb78a2';
+import { ODPT_SOURCES } from './config.js?v=933c2d17';
+import { busData, loadBus } from './bus.js?v=933c2d17';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=933c2d17';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=933c2d17';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=933c2d17';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=933c2d17';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=933c2d17';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -14,7 +15,7 @@ const SEARCH_LIMIT = 20;
 
 // ===== 保存データ =====
 const DEFAULTS = {
-  settings: { radius: 600, chains: ['lawson', 'seven', 'ministop'], dwell: 5, transfer: 3, skipRecorded: true, campaign: '', deadline: '' },
+  settings: { radius: 600, chains: ['lawson', 'seven', 'ministop'], dwell: 5, transfer: 3, skipRecorded: true, campaign: '', deadline: '', reportTo: '' },
   trip: [], // [{ id: 駅ID }] 回る順
   stores: [], // 直近の検索結果
   searchedAt: null,
@@ -393,6 +394,7 @@ function setNote(id, note) {
   rec.note = note.trim() || undefined;
   if (!rec.status && !rec.note) delete records[id];
   save();
+  renderReport();
 }
 
 // ===== 地図 =====
@@ -545,6 +547,7 @@ function renderAll() {
   renderTrainInfo();
   renderRecordSummary();
   renderAttribution();
+  renderReport();
 }
 
 function renderTrip() {
@@ -948,6 +951,35 @@ function renderPlan() {
       </li>` : '');
 }
 
+// ===== 実績を送る =====
+// 記録を、計画の順（無ければ行程の順）に停留所ごとにまとめる。外した店の記録も、その停留所に書く
+function reportGroups() {
+  const groups = (db.plan?.stops ?? []).map((s) => ({
+    name: stopName(s.stationId),
+    stores: [...s.visits.map((v) => v.store), ...(s.dropped ?? [])],
+  }));
+  const assigned = assignStores();
+  db.trip.forEach((t, i) => {
+    if (assigned[i]?.length) groups.push({ name: stopName(t.id), stores: assigned[i] });
+  });
+  return groups;
+}
+
+function currentReport() {
+  const planStores = (db.plan?.stops ?? []).flatMap((s) => s.visits.map((v) => v.store));
+  return buildReport({ campaign: campaignKey(), records: currentRecords(), groups: reportGroups(), stores: [...db.stores, ...planStores] });
+}
+
+function renderReport() {
+  const report = currentReport();
+  $('#report-count').textContent = report.count ? `記録 ${report.count}件` : 'まだ記録がありません';
+  const mail = $('#btn-report-mail');
+  mail.href = mailtoUrl(db.settings.reportTo, report);
+  mail.classList.toggle('disabled', !report.count);
+  $('#btn-report-share').hidden = !canShare();
+  $('#report-preview').textContent = `${report.subject}\n\n${report.body}`;
+}
+
 function renderRecordSummary() {
   const recs = Object.values(currentRecords()).filter((r) => r.status);
   $('#record-summary').textContent = recs.length
@@ -974,6 +1006,7 @@ function syncControls() {
   $('#transfer').value = s.transfer;
   $('#skip-recorded').checked = s.skipRecorded;
   $('#plan-deadline').value = s.deadline;
+  $('#report-to').value = s.reportTo;
   $('#campaign').value = s.campaign;
   $('#plan-date').value = todayISO();
   $('#plan-start').value = nowHHMM();
@@ -1168,6 +1201,33 @@ $('#plan-list').addEventListener('change', (e) => {
   const id = e.target.closest('[data-id]')?.dataset.id;
   if (id && e.target.dataset.action === 'note') setNote(id, e.target.value);
 });
+
+// 実績を送る（宛先はこの端末の localStorage にだけ保存する）
+$('#report-to').addEventListener('change', (e) => {
+  db.settings.reportTo = e.target.value.trim();
+  save();
+  renderReport();
+});
+
+$('#btn-report-mail').addEventListener('click', (e) => {
+  if (!currentReport().count) {
+    e.preventDefault();
+    toast('まだ記録がありません');
+  }
+});
+
+$('#btn-report-share').addEventListener('click', (e) => withBusy(e.currentTarget, '共有中…', async () => {
+  try {
+    await shareReport(currentReport());
+  } catch (err) {
+    if (err.name !== 'AbortError') throw err; // 共有メニューを閉じただけなら何もしない
+  }
+}));
+
+$('#btn-report-copy').addEventListener('click', (e) => withBusy(e.currentTarget, 'コピー中…', async () => {
+  await copyReport(currentReport());
+  toast('記録をコピーしました。メールや LINE に貼り付けて送れます');
+}));
 
 // 運行情報の「更新」（行程と巡回の 2 か所にある）
 document.addEventListener('click', (e) => {

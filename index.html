@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=9beb78a2">
+  <link rel="stylesheet" href="css/app.css?v=933c2d17">
 </head>
 <body>
   <header class="topbar">
@@ -105,6 +105,24 @@
         <ol id="plan-list" class="route-list"></ol>
         <button id="btn-reset-records" class="btn block ghost" type="button">このくじの記録をリセット</button>
       </div>
+
+      <div class="report">
+        <div class="row"><b class="small">📧 実績を送る</b><span id="report-count" class="muted small grow"></span></div>
+        <label class="field">
+          <span>宛先メール（任意・この端末にだけ保存）</span>
+          <input id="report-to" type="email" inputmode="email" autocomplete="email" placeholder="例：自分のメールアドレス">
+        </label>
+        <div class="report-actions">
+          <a id="btn-report-mail" class="btn primary">✉ メールで送る</a>
+          <button id="btn-report-share" class="btn" type="button">📤 共有</button>
+          <button id="btn-report-copy" class="btn" type="button">📋 コピー</button>
+        </div>
+        <details>
+          <summary class="small">送る内容を見る</summary>
+          <pre id="report-preview" class="report-preview"></pre>
+        </details>
+        <p class="muted small">メールは、この端末のメールアプリから送ります（このサイトが自動で送ることはありません）。</p>
+      </div>
     </section>
 
     <footer class="muted small attribution">
@@ -131,6 +149,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=9beb78a2"></script>
+  <script type="module" src="js/app.js?v=933c2d17"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 // 実績（くじの記録）を文章にして、メールアプリ・共有メニュー・コピーで送る。
 // GitHub Pages はサーバーを持たないので、アプリから自動でメールは送らない（送るのは利用者の端末のアプリ）
-import { STATUSES } from './stores.js?v=9beb78a2';
+import { STATUSES } from './stores.js?v=933c2d17';
 
 const APP_URL = 'https://tyra0119.github.io/pj_ConveniRadar/';
 const MAILTO_MAX = 1800; // これより長い mailto はメールアプリによって途中で切れる
@@ -33,7 +33,8 @@ export function buildReport({ campaign, records, groups, stores }) {
   const shown = new Set();
   const sections = [];
   for (const g of groups) {
-    const rows = g.stores.filter((s) => records[s.id]?.status || records[s.id]?.note).map((s) => {
+    // 同じ店が計画と行程の両方に出てくるので、最初に出てきた停留所にだけ書く
+    const rows = g.stores.filter((s) => !shown.has(s.id) && (records[s.id]?.status || records[s.id]?.note)).map((s) => {
       shown.add(s.id);
       return line(s, records[s.id]);
     });
