@@ -1,8 +1,9 @@
 // 巡回計画: 停留所（駅・バス停）で降りる → 徒歩で店を回る → 戻る → 電車・バス・徒歩で次の停留所へ
-import { busData, commonBusPatterns, findBusRide, loadBus } from './bus.js?v=933c2d17';
-import { findRide, loadNetwork } from './odpt.js?v=933c2d17';
-import { solveTsp } from './tsp.js?v=933c2d17';
-import { fmtMin, haversine } from './util.js?v=933c2d17';
+import { findBikeRide } from './bike.js?v=d7d61813';
+import { busData, commonBusPatterns, findBusRide, loadBus } from './bus.js?v=d7d61813';
+import { findRide, loadNetwork } from './odpt.js?v=d7d61813';
+import { solveTsp } from './tsp.js?v=d7d61813';
+import { fmtMin, haversine } from './util.js?v=d7d61813';
 
 export const WALK_SPEED = 80; // m/分（不動産広告の徒歩表示と同じ基準）
 export const WALK_FACTOR = 1.3; // 直線距離 → 道のりの係数（道路データを使わない概算）
@@ -100,7 +101,8 @@ export function hopOptions(net, fromId, toId) {
  * startMin: 最初の停留所にいる時刻（その日の 0:00 からの分）
  * deadline: 終了時刻（分）。この時刻までに停留所へ戻れるよう、間に合わない店を外し、間に合わない停留所へは行かない。null なら制限なし
  */
-export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer, day, deadline = null }) {
+// modes: 使う移動手段 { rail, bus, bike }。徒歩（1.5km 以内）は常に使う
+export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer, day, deadline = null, modes = { rail: true, bus: true, bike: false } }) {
   const net = await loadNetwork();
   if (trip.some((t) => String(t.id).startsWith('bus:'))) await loadBus();
   const stops = [];
@@ -137,10 +139,15 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
     const opt = hopOptions(net, station.id, next.id);
     const earliest = clock + transfer;
     const tasks = [
-      ...opt.rail.map((l) => findRide({ railway: l.railway.id, from: l.from, to: l.to, earliest, day })
+      ...(modes.rail ? opt.rail : []).map((l) => findRide({ railway: l.railway.id, from: l.from, to: l.to, earliest, day })
         .then((r) => ({ ...r, label: l.railway.title }), (e) => ({ reason: e.message, label: l.railway.title }))),
-      ...(opt.bus.length
+      ...(modes.bus && opt.bus.length
         ? [findBusRide({ a: station, b: next, earliest, day }).then((r) => ({ ...r, label: 'バス' }), (e) => ({ reason: e.message, label: 'バス' }))]
+        : []),
+      // 自転車は乗るまでの余裕を足さない（停留所に戻った時刻にポートへ歩き出す）。近すぎる区間は歩いた方が早いので試さない
+      ...(modes.bike && opt.dist > 400
+        ? [findBikeRide({ a: station, b: next, depart: clock, walkSpeed: WALK_SPEED, walkFactor: WALK_FACTOR })
+          .then((r) => ({ ...r, label: 'シェアサイクル' }), (e) => ({ reason: e.message, label: 'シェアサイクル' }))]
         : []),
     ];
     const results = await Promise.all(tasks);
@@ -151,7 +158,9 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
 
     if (!ride) {
       if (!tasks.length) {
+        const off = [['rail', '電車'], ['bus', 'バス'], ['bike', 'シェアサイクル']].filter(([k]) => !modes[k]).map(([, label]) => label);
         stop.error = `${station.name}と${next.name}を乗り換えなしで結ぶ電車・バスがなく、歩くにも遠すぎます（約${(opt.dist / 1000).toFixed(1)}km）。`
+          + (off.length ? `「使う移動手段」で ${off.join('・')} がオフになっています。` : '')
           + '乗り換えにはまだ対応していないので、間に乗り換える駅・バス停を追加してください';
       } else {
         stop.error = `${station.name}→${next.name}：乗れる便が見つかりません。`

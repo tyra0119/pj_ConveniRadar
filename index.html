@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=933c2d17">
+  <link rel="stylesheet" href="css/app.css?v=d7d61813">
 </head>
 <body>
   <header class="topbar">
@@ -90,6 +90,15 @@
         <span>終了時刻（任意）：この時刻までに駅へ戻れるよう、間に合わない店を外します</span>
         <div class="row"><input id="plan-deadline" type="time"><button id="btn-clear-deadline" class="btn small ghost" type="button">なし</button></div>
       </label>
+      <div class="field">
+        <span>使う移動手段（徒歩は常に使います）</span>
+        <div class="modes">
+          <label><input type="checkbox" name="mode" value="rail"> 🚃 電車</label>
+          <label><input type="checkbox" name="mode" value="bus"> 🚌 バス</label>
+          <label><input type="checkbox" name="mode" value="bike"> 🚲 シェアサイクル</label>
+        </div>
+        <span class="muted small">シェアサイクルは、ドコモ・バイクシェアと HELLO CYCLING のポートの台数を、計画を作るときに取得します（データが大きく、少し時間がかかります）。電車とバスを外すと自転車だけで回れます。</span>
+      </div>
       <label class="check"><input id="skip-recorded" type="checkbox"> 記録済み（購入・売切れ等）の店舗を除く</label>
       <button id="btn-plan" class="btn primary block" type="button">🚃 時刻表で計画を作る</button>
       <div id="plan-summary"></div>
@@ -140,6 +149,7 @@
       <p>
         地図・店舗データ © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>（ODbL）／
         祝日 <a href="https://holidays-jp.github.io/" target="_blank" rel="noopener">holidays-jp</a>／
+        シェアサイクル <a href="https://docomo-cycle.jp/" target="_blank" rel="noopener">ドコモ・バイクシェア</a>・<a href="https://www.hellocycling.jp/" target="_blank" rel="noopener">HELLO CYCLING</a>（公共交通オープンデータセンター経由の GBFS）／
         徒歩の時間は直線距離からの概算です。
         <span id="data-date"></span>
       </p>
@@ -149,6 +159,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=933c2d17"></script>
+  <script type="module" src="js/app.js?v=d7d61813"></script>
 </body>
 </html>

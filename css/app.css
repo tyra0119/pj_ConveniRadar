@@ -405,6 +405,9 @@ footer a { color: inherit; }
   border-left: 5px solid var(--c, var(--primary));
 }
 .tl-ride.bus { border-left-style: dashed; }
+.tl-ride.bike { border-left-style: double; border-left-width: 6px; }
+.modes { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; }
+.modes label { display: flex; gap: 6px; align-items: center; }
 .tl-hop-walk { padding: 6px 0 6px 38px; font-size: 13px; }
 .tl-error { padding: 8px 10px; font-size: 13.5px; color: var(--warn); background: #fff4e6; border-radius: 8px; }
 

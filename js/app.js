@@ -1,11 +1,11 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=933c2d17';
-import { busData, loadBus } from './bus.js?v=933c2d17';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=933c2d17';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=933c2d17';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=933c2d17';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=933c2d17';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=933c2d17';
+import { ODPT_SOURCES } from './config.js?v=d7d61813';
+import { busData, loadBus } from './bus.js?v=d7d61813';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=d7d61813';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=d7d61813';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=d7d61813';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=d7d61813';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=d7d61813';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -15,7 +15,7 @@ const SEARCH_LIMIT = 20;
 
 // ===== 保存データ =====
 const DEFAULTS = {
-  settings: { radius: 600, chains: ['lawson', 'seven', 'ministop'], dwell: 5, transfer: 3, skipRecorded: true, campaign: '', deadline: '', reportTo: '' },
+  settings: { radius: 600, chains: ['lawson', 'seven', 'ministop'], dwell: 5, transfer: 3, skipRecorded: true, campaign: '', deadline: '', reportTo: '', modes: { rail: true, bus: true, bike: false } },
   trip: [], // [{ id: 駅ID }] 回る順
   stores: [], // 直近の検索結果
   searchedAt: null,
@@ -67,6 +67,7 @@ function railwayLabel(id) {
 
 const railwayColor = (id) => net?.railwayById.get(id)?.color || '#0b7285';
 const BUS_COLOR = '#2b8a3e';
+const BIKE_COLOR = '#e8590c';
 
 // 行程の停留所は、駅グループ（stop:…）かバス停（bus:…）。駅 ID・ポール ID からも引ける
 function stopById(id) {
@@ -359,6 +360,7 @@ async function computePlan(fromIndex = 0, useNow = false) {
     transfer: db.settings.transfer,
     day: await dayProfile(date),
     deadline,
+    modes: { ...DEFAULTS.settings.modes, ...db.settings.modes },
   });
   db.plan = { ...plan, fromIndex, date, startTime, stale: false };
   planOpen.clear();
@@ -790,6 +792,13 @@ function currentTripIndex() {
 // バスと徒歩の区間の行（電車は renderPlan の中）
 function otherRideRow(s, nextName) {
   const r = s.ride;
+  if (r.mode === 'bike') {
+    return `<li class="tl-ride bike" style="--c:${BIKE_COLOR}">
+      <div>🚲 <b>${esc(r.system)}</b> ${esc(r.rent.name)} で借りる（${r.rent.bikes}台）</div>
+      <div class="muted small">🚶${Math.max(1, Math.round(r.walkTo))}分 → 🚲 約${Math.max(1, Math.round(r.rideMin))}分（${fmtDist(r.dist)}）→ ${esc(r.ret.name)} に返す（空き${r.ret.docks}）→ 🚶${Math.max(1, Math.round(r.walkFrom))}分 → <b>${fmtMin(r.arr)} ${esc(nextName)}着</b></div>
+      <div class="muted small">台数・空きは計画を作った時点のものです</div>
+    </li>`;
+  }
   if (r.mode === 'walk') {
     return `<li class="tl-hop-walk">🚶 <b>${esc(nextName)}まで徒歩</b> 約${Math.max(1, Math.round(r.arr - r.dep))}分（${fmtDist(r.dist)}）→ ${fmtMin(r.arr)}着</li>`;
   }
@@ -854,10 +863,21 @@ function renderPlan() {
           .addTo(layers.route);
       }
       // 電車は路線の色の実線、バスは緑の破線、徒歩は灰色の点線
-      const style = s.ride.mode === 'bus' ? { color: BUS_COLOR, weight: 5, dashArray: '10 6' }
+      const style = s.ride.mode === 'bike' ? { color: BIKE_COLOR, weight: 5 }
+        : s.ride.mode === 'bus' ? { color: BUS_COLOR, weight: 5, dashArray: '10 6' }
         : s.ride.mode === 'walk' ? { color: '#495057', weight: 4, dashArray: '2 8' }
           : { color: railwayColor(s.ride.railway), weight: 6 };
-      L.polyline(line, { ...style, opacity: 0.8, interactive: false }).addTo(layers.route);
+      // 自転車は、停留所 → 借りるポート → 返すポート → 次の停留所 と描き、ポートに印を付ける
+      const r = s.ride;
+      const path = r.mode === 'bike' ? [[st.lat, st.lng], [r.rent.lat, r.rent.lon], [r.ret.lat, r.ret.lon], [nx.lat, nx.lng]] : line;
+      L.polyline(path, { ...style, opacity: 0.8, interactive: false }).addTo(layers.route);
+      if (r.mode === 'bike') {
+        for (const [pt, label] of [[r.rent, `🚲 借りる：${r.rent.name}（${r.rent.bikes}台）`], [r.ret, `🚲 返す：${r.ret.name}（空き${r.ret.docks}）`]]) {
+          L.circleMarker([pt.lat, pt.lon], { radius: 7, color: '#fff', weight: 2, fillColor: BIKE_COLOR, fillOpacity: 1 })
+            .bindTooltip(esc(label))
+            .addTo(layers.route);
+        }
+      }
     }
   });
 
@@ -930,7 +950,7 @@ function renderPlan() {
       ? `<li class="tl-walk">🚶 ${stopWord(s.stationId)}へ戻る ${fmtDur(s.backLeg.min * 60)}（${fmtDist(s.backLeg.dist)}）→ ${fmtMin(s.ready)} 着</li>`
       : '';
 
-    const ride = s.ride?.mode === 'bus' || s.ride?.mode === 'walk' ? otherRideRow(s, stopName(p.stops[i + 1]?.stationId)) : s.ride
+    const ride = ['bus', 'walk', 'bike'].includes(s.ride?.mode) ? otherRideRow(s, stopName(p.stops[i + 1]?.stationId)) : s.ride
       ? `<li class="tl-ride" style="--c:${railwayColor(s.ride.railway)}">
           <div><b>${fmtMin(s.ride.dep)}発</b> ${esc(trainTypeTitle(s.ride.type))} ${esc(destLabel(s.ride.dest))}</div>
           <div class="muted small">${esc(railwayLabel(s.ride.railway))} ・ 駅で${Math.max(0, Math.round(s.ride.dep - s.ready))}分待ち → <b>${fmtMin(s.ride.arr)}着</b>${s.ride.estimated ? '（推定）' : ''}</div>
@@ -1007,6 +1027,8 @@ function syncControls() {
   $('#skip-recorded').checked = s.skipRecorded;
   $('#plan-deadline').value = s.deadline;
   $('#report-to').value = s.reportTo;
+  const modes = { ...DEFAULTS.settings.modes, ...s.modes };
+  document.querySelectorAll('input[name=mode]').forEach((el) => { el.checked = !!modes[el.value]; });
   $('#campaign').value = s.campaign;
   $('#plan-date').value = todayISO();
   $('#plan-start').value = nowHHMM();
@@ -1108,6 +1130,14 @@ for (const id of ['#plan-date', '#plan-start']) {
     renderPlan();
   });
 }
+
+// 使う移動手段（電車・バス・シェアサイクル）。徒歩は常に使う
+document.querySelectorAll('input[name=mode]').forEach((el) => el.addEventListener('change', () => {
+  db.settings.modes = Object.fromEntries([...document.querySelectorAll('input[name=mode]')].map((c) => [c.value, c.checked]));
+  markPlanStale();
+  save();
+  renderPlan();
+}));
 
 function setDeadline(value) {
   db.settings.deadline = value;
