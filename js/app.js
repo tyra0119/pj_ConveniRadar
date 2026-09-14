@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=a153cd0a';
-import { busData, loadBus } from './bus.js?v=a153cd0a';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=a153cd0a';
-import { collectBases, planAreaRoute } from './area.js?v=a153cd0a';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=a153cd0a';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=a153cd0a';
-import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, buildPlan, commonRailways, hopOptions, pointId, pointStop } from './plan.js?v=a153cd0a';
-import { CHAINS, STATUSES, fetchStoresAround, storeDataDate } from './stores.js?v=a153cd0a';
-import { $, CancelError, ask, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=a153cd0a';
+import { ODPT_SOURCES } from './config.js?v=499868f9';
+import { busData, loadBus } from './bus.js?v=499868f9';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=499868f9';
+import { collectBases, planAreaRoute } from './area.js?v=499868f9';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=499868f9';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=499868f9';
+import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, buildPlan, commonRailways, hopOptions, pointId, pointStop } from './plan.js?v=499868f9';
+import { CHAINS, STATUSES, fetchStoresAround, storeDataDate } from './stores.js?v=499868f9';
+import { $, CancelError, ask, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=499868f9';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -108,6 +108,8 @@ const radiusIndex = (m) => RADIUS_STEPS.reduce((best, s, i) => (Math.abs(s - m) 
 const currentModes = () => ({ ...DEFAULTS.settings.modes, ...db.settings.modes });
 const isWalkOnly = (m = currentModes()) => !m.rail && !m.bus && !m.bike;
 const isAreaMode = () => db.ui.mode === 'area';
+// 「タップした場所を中心に」を選んでいて、エリアタブを開いている（地図をタップすると中心が移る）
+const tapCenterActive = () => isAreaMode() && db.area.source === 'tap' && db.ui.tab === 'search';
 // 駅周辺検索の「駅から半径」。エリア検索は範囲（中心と半径）だけで考え、駅・バス停のまわりの範囲は使わない（2026-09-15 利用者の指摘）
 const walkRadius = () => db.settings.radius;
 
@@ -122,7 +124,7 @@ function renderSearchBadge() {
   $('#btn-goto-plan').disabled = !ready;
   $('#search-next-hint').hidden = ready;
   $('#search-next-hint').textContent = isAreaMode()
-    ? 'エリアの中心（📍 現在地／🗺 地図の中心）を決めると、計画へ進めます'
+    ? 'エリアの中心（📍 現在地／👆 地図をタップ）を決めると、計画へ進めます'
     : '回る駅を 1 つ以上追加すると、計画へ進めます';
   for (const t of ['plan', 'nav']) document.querySelector(`.tab[data-tab="${t}"]`).setAttribute('aria-disabled', String(!ready));
 }
@@ -678,6 +680,7 @@ function storePopup(s) {
 // 駅周辺検索で駅を指定したあとエリア検索に切り替えると、駅周辺検索の情報が地図に残っていた（2026-09-14）。
 // 巡回タブでは、どちらで作った計画でも回っている最中なので出す
 function syncMapLayers() {
+  $('#map').classList.toggle('tap-center', tapCenterActive());
   const show = !isAreaMode() || db.tripMode === 'area' || db.ui.tab === 'nav';
   for (const layer of [layers.trip, layers.stores, layers.route]) {
     if (show && !map.hasLayer(layer)) layer.addTo(map);
@@ -1614,10 +1617,12 @@ function renderArea() {
   $('#area-radius-out').textContent = fmtDist(a.radiusKm * 1000);
   // 中心の決め方は選択式。選んでいる方のボタンの色を変える（押しても色が変わらず分かりにくかった）
   const sourceLabel = a.source === 'gps' ? '📍 現在地'
-    : a.source === 'map' ? '🗺 地図の中心（地図を動かすと、中心と範囲も動きます）' : a.center?.label;
-  $('#area-center').textContent = a.center ? `中心：${sourceLabel}` : '中心：未設定（📍 現在地 か 🗺 地図の中心 を選んでください）';
+    : a.source === 'tap' ? '👆 タップした場所（地図をタップすると、中心と範囲が移ります）' : a.center?.label;
+  $('#area-center').textContent = a.center ? `中心：${sourceLabel}`
+    : a.source === 'tap' ? '中心：未設定（地図をタップしてください）' : '中心：未設定（📍 現在地 か 👆 タップした場所 を選んでください）';
   $('#btn-area-locate').setAttribute('aria-pressed', String(a.source === 'gps'));
-  $('#btn-area-mapcenter').setAttribute('aria-pressed', String(a.source === 'map'));
+  $('#btn-area-mapcenter').setAttribute('aria-pressed', String(a.source === 'tap'));
+  $('#map').classList.toggle('tap-center', tapCenterActive());
   renderSearchBadge();
   if (a.center && isAreaMode()) {
     L.circle([a.center.lat, a.center.lng], {
@@ -1670,7 +1675,7 @@ async function computeAreaInner(btn, signal = null) {
   };
   if (!net) throw new Error('駅データを読み込み中です。少し待ってください');
   const area = db.area;
-  if (!area.center) throw new Error('先に中心を決めてください（📍 現在地 か 🗺 地図の中心）');
+  if (!area.center) throw new Error('先に中心を決めてください（📍 現在地 か 👆 タップした場所）');
   const startTime = $('#plan-start').value || nowHHMM();
   let startMin = parseHHMM(startTime);
   if (startMin < 4 * 60) startMin += 24 * 60;
@@ -1777,23 +1782,18 @@ $('#btn-area-locate').addEventListener('click', (e) => withBusy(e.currentTarget,
   toast(`現在地を中心にしました${pos.accuracy ? `（誤差 約${Math.round(pos.accuracy)}m）` : ''}`);
 }));
 
+// 「👆 タップした場所を中心に」: 押すと地図のタップを受け付け、エリアタブで地図をタップした場所を中心にする（タップし直すたびに移る）。
+// 2026-09-15 利用者の指示。以前は「🗺 地図の中心を中心に」で、地図を動かすと中心がついてきた
 $('#btn-area-mapcenter').addEventListener('click', () => {
-  const c = map.getCenter();
-  setAreaCenter({ lat: c.lat, lng: c.lng, label: '地図の中心' }, 'map', { fit: false });
-  toast('地図の中心を中心にしました。地図を動かすと、範囲も一緒に動きます');
-});
-
-// 「地図の中心」を選んでいる間は、エリアタブで地図を動かすと中心も動かす（巡回中に地図を動かしても変えない）
-map.on('moveend', () => {
-  if (!isAreaMode() || db.area.source !== 'map' || db.ui.tab !== 'search' || searching) return;
-  const c = map.getCenter();
-  const cur = db.area.center;
-  if (cur && Math.abs(cur.lat - c.lat) < 1e-6 && Math.abs(cur.lng - c.lng) < 1e-6) return;
-  db.area.center = { lat: c.lat, lng: c.lng, label: '地図の中心' };
-  markPlanStale();
+  db.area.source = 'tap';
   save();
   renderArea();
-  renderPlan();
+  toast(db.area.center ? '地図をタップすると、その場所に中心を移します' : '地図をタップして、中心を決めてください', 5000);
+});
+
+map.on('click', (e) => {
+  if (!tapCenterActive() || searching) return;
+  setAreaCenter({ lat: e.latlng.lat, lng: e.latlng.lng, label: 'タップした場所' }, 'tap', { fit: false });
 });
 
 // 計画のあとに中心・半径を変えても、選んだ結果は消さずに「計画が古い」にする（回っている最中に店の一覧が消えないように）
@@ -1870,7 +1870,7 @@ function setTab(name, { quiet = false } = {}) {
   if (TABS.indexOf(tab) >= TABS.indexOf('plan') && !hasSearchTarget()) {
     if (!quiet) {
       notice(isAreaMode()
-        ? 'エリアの中心が決まっていません。「📍 現在地を中心に」か「🗺 地図の中心を中心に」を押してから、計画へ進んでください。'
+        ? 'エリアの中心が決まっていません。「📍 現在地を中心に」を押すか、「👆 タップした場所を中心に」を押して地図をタップしてから、計画へ進んでください。'
         : '回る駅が 1 つも選ばれていません。駅名・バス停名で検索するか、地図の駅をタップして追加してから、計画へ進んでください。',
       { title: '回る場所が決まっていません', icon: '🗺' });
     }
@@ -1922,6 +1922,7 @@ if (db.settings.deadline && db.settings.deadlineSetOn !== todayISO()) {
 }
 if (db.ui.tab === 'area') db.ui.mode = 'area'; // 以前の「エリア」タブを開いていた保存データ
 if (db.ui.tab === 'stores') db.ui.tab = 'settings'; // 以前の「店舗」タブ（今は設定タブの中）
+if (db.area.source === 'map') db.area.source = 'tap'; // 以前の「地図の中心を中心に」（今はタップした場所）
 // 以前の保存データは、探し方ごとの行程（byMode）を持っていた。今は排他なので、いまの探し方の分だけ残す
 delete db.byMode;
 if ((db.tripMode === 'area') !== isAreaMode()) Object.assign(db, { trip: [], plan: null, searched: {} });

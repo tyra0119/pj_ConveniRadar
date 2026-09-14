@@ -151,7 +151,7 @@ export async function withBusy(btn, label, fn) {
 // 現在地。まず GPS（高精度）で取り、取れなければ（屋内・PC など）精度を落として取り直す。
 // 失敗の理由をブラウザの英語のまま出していて、押しても何も起きないように見えた（2026-09-14）ので、理由ごとに日本語で案内する
 export function getPosition() {
-  if (!navigator.geolocation) return Promise.reject(new Error('この端末・ブラウザでは現在地を取得できません。「地図の中心を中心に」を使ってください'));
+  if (!navigator.geolocation) return Promise.reject(new Error('この端末・ブラウザでは現在地を取得できません。「タップした場所を中心に」を使ってください'));
   if (!window.isSecureContext) return Promise.reject(new Error('現在地は https のページでだけ使えます'));
   const once = (options) => new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(
@@ -164,10 +164,10 @@ export function getPosition() {
     .catch((e) => (e.code === 1 ? Promise.reject(e) : once({ enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 })))
     .catch((e) => {
       const why = e.code === 1
-        ? '位置情報の利用が許可されていません。ブラウザ（スマホは設定アプリ）で、このサイトの位置情報を「許可」にしてください。または「地図の中心を中心に」を使ってください'
+        ? '位置情報の利用が許可されていません。ブラウザ（スマホは設定アプリ）で、このサイトの位置情報を「許可」にしてください。または「タップした場所を中心に」を使ってください'
         : e.code === 3
-          ? '現在地の取得に時間がかかりすぎました。屋外で試すか、「地図の中心を中心に」を使ってください'
-          : '現在地を特定できませんでした。位置情報サービスがオンか確かめるか、「地図の中心を中心に」を使ってください';
+          ? '現在地の取得に時間がかかりすぎました。屋外で試すか、「タップした場所を中心に」を使ってください'
+          : '現在地を特定できませんでした。位置情報サービスがオンか確かめるか、「タップした場所を中心に」を使ってください';
       throw new Error(why);
     });
 }
