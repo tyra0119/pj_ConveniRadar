@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=875347a5">
+  <link rel="stylesheet" href="css/app.css?v=22425172">
 </head>
 <body>
   <header class="topbar">
@@ -128,17 +128,22 @@
         <button class="btn small ghost" type="button" data-goto="settings">⚙ 設定を変える</button>
       </div>
 
-      <h3 class="subhead">回る店 <span id="store-count" class="badge"></span></h3>
-      <p class="muted small">チェックを外した店舗は計画から除外されます。駅検索では、駅を足すと自動で店を探し、いちばん近い駅に割り当てます。エリア検索では、計画を作ると選んだ駅ごとに出ます。</p>
-      <div id="store-tools" class="list-tools" hidden>
-        <button class="btn small ghost" type="button" data-action="open-all">▾ すべて開く</button>
-        <button class="btn small ghost" type="button" data-action="close-all">▸ すべて閉じる</button>
-      </div>
-      <ul id="store-list" class="store-list"></ul>
-
+      <!-- 「計画を作る」→ 回る店の一覧が出る →「次へ：巡回へ →」。ほかのタブと同じく、次のタブへは「次へ」で進む（2026-09-14 利用者の指示） -->
       <button id="btn-plan" class="btn primary block" type="button">🗓 計画を作る</button>
-      <div id="area-summary"></div>
-      <div id="plan-summary"></div>
+      <p id="plan-empty" class="empty">「計画を作る」を押すと、回る店の一覧がここに出ます</p>
+      <div id="plan-result" class="card-body" hidden>
+        <div id="area-summary"></div>
+        <div id="plan-summary"></div>
+        <h3 class="subhead">回る店 <span id="store-count" class="badge"></span></h3>
+        <p class="muted small">アイコンの右上の番号は回る順番です（地図と同じ）。チェックを外した店は、次に「計画を作る」を押したときに外れます。</p>
+        <div id="store-tools" class="list-tools" hidden>
+          <button class="btn small ghost" type="button" data-action="open-all">▾ すべて開く</button>
+          <button class="btn small ghost" type="button" data-action="close-all">▸ すべて閉じる</button>
+        </div>
+        <ul id="store-list" class="store-list"></ul>
+      </div>
+
+      <button id="btn-goto-nav" class="btn primary block" type="button" data-goto="nav" disabled>次へ：巡回へ →</button>
     </section>
 
     <section id="nav-card" class="card" data-panel="nav">
@@ -148,12 +153,15 @@
         <div id="stale-banner" class="stale-banner" hidden></div>
         <a id="btn-next" class="btn accent block big" target="_blank" rel="noopener"></a>
         <div class="train-info"></div>
-        <div class="mode-legend" aria-label="移動の手段と地図の線">
-          <span><span class="mode-chip sm" style="--c:#495057">🚶 徒歩</span> <span class="line-sample dotted" style="--c:#495057"></span></span>
-          <span><span class="mode-chip sm" style="--c:#0b7285">🚃 電車</span> <span class="line-sample" style="--c:#0b7285"></span>（路線の色）</span>
-          <span><span class="mode-chip sm" style="--c:#2b8a3e">🚌 バス</span> <span class="line-sample dashed" style="--c:#2b8a3e"></span></span>
-          <span><span class="mode-chip sm" style="--c:#e8590c">🚲 自転車</span> <span class="line-sample" style="--c:#e8590c"></span></span>
-        </div>
+        <details class="legend-box">
+          <summary class="small muted">移動の札と地図の線の見方</summary>
+          <div class="mode-legend" aria-label="移動の手段と地図の線">
+            <span><span class="mode-chip sm" style="--c:#495057">🚶 徒歩</span> <span class="line-sample dotted" style="--c:#495057"></span></span>
+            <span><span class="mode-chip sm" style="--c:#0b7285">🚃 電車</span> <span class="line-sample" style="--c:#0b7285"></span>（路線の色）</span>
+            <span><span class="mode-chip sm" style="--c:#2b8a3e">🚌 バス</span> <span class="line-sample dashed" style="--c:#2b8a3e"></span></span>
+            <span><span class="mode-chip sm" style="--c:#e8590c">🚲 自転車</span> <span class="line-sample" style="--c:#e8590c"></span></span>
+          </div>
+        </details>
         <ol id="plan-list" class="route-list"></ol>
         <button id="btn-reset-records" class="btn block ghost" type="button">このくじの記録をリセット</button>
       </div>
@@ -213,6 +221,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=875347a5"></script>
+  <script type="module" src="js/app.js?v=22425172"></script>
 </body>
 </html>

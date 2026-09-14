@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=875347a5';
-import { busData, loadBus } from './bus.js?v=875347a5';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=875347a5';
-import { planAreaRoute } from './area.js?v=875347a5';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=875347a5';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=875347a5';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=875347a5';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=875347a5';
-import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=875347a5';
+import { ODPT_SOURCES } from './config.js?v=22425172';
+import { busData, loadBus } from './bus.js?v=22425172';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=22425172';
+import { planAreaRoute } from './area.js?v=22425172';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=22425172';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=22425172';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=22425172';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=22425172';
+import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=22425172';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -436,12 +436,14 @@ async function computePlanInner(fromIndex = 0, useNow = false) {
   });
   db.plan = { ...plan, fromIndex, date, startTime, stale: false };
   planOpen.clear();
+  navOpenStore = null;
   save();
   renderAll();
   fitPlan();
   refreshTrainInfo();
-  setTab('nav');
-  if (plan.complete) toast(`${plan.visited}店舗・${plan.stops.length}駅の計画を作りました`, 5000);
+  // 巡回タブへは自動で移らない。計画タブで回る店の一覧を見てから「次へ：巡回へ →」で進む（ほかのタブと同じ操作にする 2026-09-14）
+  const hint = db.ui.tab === 'plan' ? '。「次へ：巡回へ →」で回り始めます' : '';
+  if (plan.complete) toast(`${plan.visited}店舗・${plan.stops.length}駅の計画を作りました${hint}`, 5000);
   else notice(plan.error, { title: '途中までしか計画できませんでした' });
 }
 
@@ -506,6 +508,12 @@ const storeIcon = (chain, badge, { done = false, faded = false } = {}) => L.divI
   iconAnchor: [17, 17],
   popupAnchor: [0, -17],
 });
+
+// 一覧の店の印。地図の店（チェーンのアイコンの右上に回る順番の番号）と同じ見た目にする
+// （計画の一覧の番号と地図の番号の形が合っていないと指摘 2026-09-14）
+function storeMark(store, badge, { done = false } = {}) {
+  return `<span class="store-mark${done ? ' done' : ''}">${CHAINS[store.chain].icon}${badge ? `<span class="pin-badge" style="--c:${CHAINS[store.chain].color}">${esc(badge)}</span>` : ''}</span>`;
+}
 
 function syncStationLayer() {
   const show = map.getZoom() >= STATION_MIN_ZOOM;
@@ -846,7 +854,7 @@ function renderStores() {
       <li class="group" data-index="${i}">
         <button class="group-toggle" type="button" data-action="toggle-group" aria-expanded="${opened}">
           <span class="chev">${opened ? '▾' : '▸'}</span>
-          <span class="num" style="--c:${String(id).startsWith('bus:') ? BUS_COLOR : 'var(--primary)'}">${i + 1}</span>
+          <span class="num square" style="--c:${String(id).startsWith('bus:') ? BUS_COLOR : 'var(--primary)'}">${i + 1}</span>
           <span class="group-name">${esc(stopName(id))}</span>
           ${pending.has(id)
             ? `<span class="small warn">${autoSearching ? '検索中…' : '未検索'}</span>`
@@ -855,16 +863,22 @@ function renderStores() {
         ${g.length ? `<button class="btn small ghost" type="button" data-action="group">${allOff ? 'すべて含める' : 'すべて外す'}</button>` : ''}
       </li>`;
     if (!opened) return head;
-    return head + g.map((s) => {
+    // 計画があるときは回る順番に並べる（距離順のままだと番号が 1, 27, 7… と飛んで見辛い）。計画に入らない店は後ろに距離順
+    const byPlanOrder = (a, b) => (planNo.get(a.id) ?? 1e9) - (planNo.get(b.id) ?? 1e9);
+    return head + [...g].sort(byPlanOrder).map((s) => {
       const excluded = !!db.excluded[s.id];
       const st = STATUSES[records[s.id]?.status];
+      // 回る順番は、地図と同じくアイコンの右上の番号で出す。計画が新しいのに入らなかった店（終了時刻に間に合わない など）は「計画外」
+      const no = excluded ? null : planNo.get(s.id);
+      const planTag = !db.plan || db.plan.stale || excluded || no || st ? '' : '<span class="tag muted">計画外</span>';
       return `
         <li class="store${excluded ? ' off' : ''}" data-id="${esc(s.id)}">
           <label class="store-main">
             <input type="checkbox" data-action="toggle"${excluded ? '' : ' checked'}>
-            <span class="chain-icon">${CHAINS[s.chain].icon}</span>
+            ${storeMark(s, no, { done: !!st })}
             <span class="store-name">${esc(s.name)}</span>
           </label>
+          ${planTag}
           ${st ? `<span class="tag ${st.tone === 'ok' ? 'ok' : 'ng'}">${st.icon}${st.label}</span>` : ''}
           <span class="muted small">🚶${walkMinutes(s.distance)}分</span>
           <button class="icon-btn" type="button" data-action="focus" title="地図で見る">🗺</button>
@@ -931,11 +945,19 @@ function legRow(s, nextName) {
 
 const destLabel = (dest) => (dest?.length ? `${dest.map(stopName).join('・')}行` : '');
 
+// 巡回で記録のボタンを開いている店。null なら次に回る店、'' なら開かない
+let navOpenStore = null;
+let navOpenShown = null;
+
 function renderPlan() {
   layers.route.clearLayers();
   const p = db.plan;
   $('#nav-empty').hidden = !!p;
   $('#nav-body').hidden = !p;
+  // 計画タブの回る店の一覧と「次へ：巡回へ →」は、計画を作ってから出す
+  $('#plan-empty').hidden = !!p;
+  $('#plan-result').hidden = !p;
+  $('#btn-goto-nav').disabled = !p;
   if (!p) {
     $('#plan-summary').innerHTML = '';
     $('#plan-stale').innerHTML = '';
@@ -967,7 +989,7 @@ function renderPlan() {
   // 古い計画の数字を、いまの計画のように並べない（「計画に古い情報が残っている」と指摘された 2026-09-14）。
   // 一番上に作り直すよう出し、前の数字は畳んでおく
   $('#plan-stale').innerHTML = p.stale
-    ? '<div class="stale-banner"><div>⚠ この計画は古くなっています。作ったあとに駅・店舗・設定が変わりました。下の「計画を作る」で作り直してください。</div></div>'
+    ? '<div class="stale-banner"><div>⚠ この計画は古くなっています。作ったあとに駅・店舗・設定が変わりました。「計画を作る」で作り直してください。</div></div>'
     : '';
   $('#plan-summary').innerHTML = p.stale
     ? `<details class="old-plan"><summary class="small">前に作った計画を見る（古い）</summary>${summaryBody}</details>`
@@ -1037,6 +1059,7 @@ function renderPlan() {
   else btnNext.removeAttribute('href');
 
   let n = 0;
+  navOpenShown = navOpenStore ?? next?.store.id ?? null;
   const current = currentPlanStop(p, records);
   $('#plan-list').innerHTML = p.stops.map((s, i) => {
     const tripIndex = tripIndexOf(s.stationId, p.fromIndex + i);
@@ -1052,35 +1075,46 @@ function renderPlan() {
             <span class="muted small">${fmtMin(s.arrive)}${i === 0 ? 'から' : '着'} ・ ${s.visits.length ? `完了 ${doneHere}/${s.visits.length}店` : '店なし'}</span>
           </span>
         </button>
-        ${tripIndex >= 0 ? `<button class="btn small" type="button" data-action="replan" data-index="${tripIndex}" title="この駅から、今の時刻で残りを組み直す">🔄 今からここで</button>` : ''}
       </li>`;
 
     // 閉じている駅は、店の行と「駅へ戻る」を出さない（番号は通しで数える）
+    // 店の行は 1 行にまとめ、記録のボタンとメモは「次に回る店」か「記録 ▾」で開いた店だけに出す
+    // （巡回の一覧がごちゃごちゃして見辛いと指摘 2026-09-14。以前は全部の店に 4 つのボタンとメモ欄を並べていた）
     if (!opened) n += s.visits.length;
     const stores = !opened ? '' : s.visits.map((v) => {
       n++;
       const rec = records[v.store.id];
+      const st = STATUSES[rec?.status];
+      const open = v.store.id === navOpenShown;
       return `
-        <li class="stop${rec?.status ? ' done' : ''}" data-id="${esc(v.store.id)}">
+        <li class="stop${rec?.status ? ' done' : ''}${open ? ' open' : ''}" data-id="${esc(v.store.id)}">
           <div class="stop-head">
-            <span class="num" style="--c:${CHAINS[v.store.chain].color}">${n}</span>
+            ${storeMark(v.store, n, { done: !!rec?.status })}
             <div class="stop-info">
               <div class="store-name">${esc(v.store.name)}</div>
-              <div class="muted small">${modeChip('walk', null, true)} ${minutes(v.walkMin)}（${fmtDist(v.walkDist)}）→ <b>${fmtMin(v.arrive)}</b> 着</div>
+              <div class="stop-sub muted small">🚶${minutes(v.walkMin)} → <b>${fmtMin(v.arrive)}</b>着${st ? ` <span class="tag ${st.tone === 'ok' ? 'ok' : 'ng'}">${st.icon}${st.label}</span>` : ''}${rec?.note ? ` 📝${esc(rec.note)}` : ''}</div>
             </div>
-            <a class="btn small primary" href="${esc(walkNavUrl(v.store))}" target="_blank" rel="noopener">ナビ</a>
+            ${rec?.status ? '' : `<a class="btn small primary" href="${esc(walkNavUrl(v.store))}" target="_blank" rel="noopener">ナビ</a>`}
+            <button class="btn small ghost" type="button" data-action="toggle-store" aria-expanded="${open}">記録 ${open ? '▴' : '▾'}</button>
           </div>
-          <div class="status-row">
-            ${Object.entries(STATUSES).map(([key, st]) => `<button type="button" class="chip${rec?.status === key ? ` on ${st.tone}` : ''}" data-action="status" data-status="${key}">${st.icon} ${st.label}</button>`).join('')}
-          </div>
-          <input class="note" type="text" data-action="note" placeholder="メモ（残り枚数・購入数など）" value="${esc(rec?.note)}">
+          ${open ? `
+          <div class="stop-detail">
+            <div class="status-row">
+              ${Object.entries(STATUSES).map(([key, s2]) => `<button type="button" class="chip${rec?.status === key ? ` on ${s2.tone}` : ''}" data-action="status" data-status="${key}">${s2.icon} ${s2.label}</button>`).join('')}
+            </div>
+            <input class="note" type="text" data-action="note" placeholder="メモ（残り枚数・購入数など）" value="${esc(rec?.note)}">
+          </div>` : ''}
         </li>`;
     }).join('');
 
     const back = opened && s.backLeg
-      ? `<li class="leg walk" style="--c:${WALK_COLOR}">
-          <div class="leg-head">${modeChip('walk')} ${stopWord(s.stationId)}へ戻る → <b>${fmtMin(s.ready)}</b> 着 <span class="muted small">（${minutes(s.backLeg.min)}・${fmtDist(s.backLeg.dist)}）</span></div>
+      ? `<li class="leg walk quiet" style="--c:${WALK_COLOR}">
+          <div class="leg-head">${modeChip('walk', null, true)} ${stopWord(s.stationId)}へ戻る → <b>${fmtMin(s.ready)}</b> 着 <span class="muted small">（${minutes(s.backLeg.min)}）</span></div>
         </li>`
+      : '';
+    // 組み直しは、開いている駅の中にだけ出す（以前は全部の駅の見出しに「今からここで」を並べていた）
+    const tools = opened && tripIndex >= 0
+      ? `<li class="tl-tools"><button class="btn small ghost" type="button" data-action="replan" data-index="${tripIndex}" title="この駅から、今の時刻で残りを組み直す">🔄 ${esc(stopName(s.stationId))}から今の時刻で組み直す</button></li>`
       : '';
 
     const ride = s.ride ? legRow(s, stopName(p.stops[i + 1]?.stationId)) : '';
@@ -1090,7 +1124,7 @@ function renderPlan() {
       ? `<li class="tl-walk warn">⏰ 終了時刻に間に合わないので ${s.dropped.length}店を外しました（${esc(s.dropped.slice(0, 3).map((d) => d.name).join('、'))}${s.dropped.length > 3 ? ' ほか' : ''}）</li>`
       : '';
     const cutoff = s.cutoff ? `<li class="tl-error">⏰ ${esc(s.cutoff)}</li>` : '';
-    return head + dropped + stores + back + ride + cutoff + err;
+    return head + dropped + stores + back + tools + ride + cutoff + err;
   }).join('') + (p.endMin != null ? `
       <li class="tl-station">
         <span class="num" style="--c:#495057">🏁</span>
@@ -1373,7 +1407,13 @@ $('#plan-list').addEventListener('click', (e) => {
   }
   if (btn.dataset.action === 'status') {
     const id = btn.closest('[data-id]')?.dataset.id;
-    if (id) setStatus(id, btn.dataset.status);
+    if (!id) return;
+    navOpenStore = null; // 記録したら、次に回る店の記録を開く
+    setStatus(id, btn.dataset.status);
+  } else if (btn.dataset.action === 'toggle-store') {
+    const id = btn.closest('[data-id]')?.dataset.id;
+    navOpenStore = id === navOpenShown ? '' : id;
+    renderPlan();
   } else if (btn.dataset.action === 'toggle-stop') {
     const i = Number(btn.dataset.stop);
     planOpen.set(i, !isStopOpen(i, currentPlanStop(db.plan, currentRecords())));
@@ -1469,7 +1509,7 @@ function renderArea() {
       <div><span class="big">${fmtMin(l.estimateEnd)}</span><span class="label">終了（見積もり）</span></div>
     </div>
     <p class="small">範囲内の候補 ${l.candidates}店・店のある駅・バス停 ${l.bases}か所 から選びました。${esc(l.startName)}まで徒歩 約${Math.max(1, Math.round(l.walkToStart))}分から始めます。</p>
-    <p class="small muted">見積もりは平均的な待ち時間と速さで出したものです。実際の時刻表での計画は「巡回」タブに出ます（見積もりより店が減ることがあります）。</p>`;
+    <p class="small muted">見積もりは平均的な待ち時間と速さで出したものです。実際の時刻表での計画は、下の回る店の一覧と「巡回」タブに出ます（見積もりより店が減ることがあります）。</p>`;
 }
 
 function setAreaCenter(center, source, { fit = true } = {}) {
