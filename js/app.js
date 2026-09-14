@@ -1,9 +1,9 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=15344496';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=15344496';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=15344496';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=15344496';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=15344496';
+import { ODPT_SOURCES } from './config.js?v=198d0c89';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=198d0c89';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=198d0c89';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=198d0c89';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=198d0c89';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -13,7 +13,7 @@ const SEARCH_LIMIT = 20;
 
 // ===== 保存データ =====
 const DEFAULTS = {
-  settings: { radius: 600, chains: ['lawson', 'seven', 'ministop'], dwell: 5, transfer: 3, skipRecorded: true, campaign: '' },
+  settings: { radius: 600, chains: ['lawson', 'seven', 'ministop'], dwell: 5, transfer: 3, skipRecorded: true, campaign: '', deadline: '' },
   trip: [], // [{ id: 駅ID }] 回る順
   stores: [], // 直近の検索結果
   searchedAt: null,
@@ -326,6 +326,11 @@ async function computePlan(fromIndex = 0, useNow = false) {
   const startTime = $('#plan-start').value || nowHHMM();
   let startMin = parseHHMM(startTime);
   if (startMin < 4 * 60) startMin += 24 * 60; // 0〜4 時は前日の運行日の続き（時刻表の数え方に合わせる）
+  let deadline = db.settings.deadline ? parseHHMM(db.settings.deadline) : null;
+  if (deadline != null && deadline < 4 * 60) deadline += 24 * 60;
+  if (deadline != null && deadline <= startMin) {
+    throw new Error(`終了時刻 ${db.settings.deadline} が、始める時刻 ${startTime} より前です。終了時刻を直すか「なし」にしてください`);
+  }
 
   // 店舗を探していない駅があれば、先に探す（探さずに計画すると、その駅は店なしになる）
   if (autoSearching) await autoSearching;
@@ -342,6 +347,7 @@ async function computePlan(fromIndex = 0, useNow = false) {
     dwell: db.settings.dwell,
     transfer: db.settings.transfer,
     day: await dayProfile(date),
+    deadline,
   });
   db.plan = { ...plan, fromIndex, date, startTime, stale: false };
   planOpen.clear();
@@ -756,6 +762,8 @@ function renderPlan() {
     <p class="small">${esc(p.date)} ${fmtMin(p.startMin)} ${esc(firstName)}から ${p.stops.length}駅・乗車${rides.length}回</p>
     ${rides.some((r) => r.estimated) ? '<p class="small muted">「推定」の着時刻は、次の駅の時刻表や距離から見積もったものです</p>' : ''}
     ${usesChallenge ? `<p class="small muted">公共交通オープンデータチャレンジの時刻表を含みます（${ODPT_SOURCES.chl.until} まで）</p>` : ''}
+    ${p.deadline != null ? `<p class="small">⏰ 終了時刻 ${fmtMin(p.deadline)}（駅に戻るまで）・ ${p.dropped ? `間に合わない ${p.dropped}店を外しました` : '選んだ店はすべて間に合います'}</p>` : ''}
+    ${p.cutoff ? `<p class="small warn">⏰ ${esc(p.cutoff)}</p>` : ''}
     ${!p.complete ? `<p class="small warn">⚠ 途中までしか計画できませんでした。${esc(p.error ?? '')}</p>` : ''}
     ${p.stale ? '<p class="small warn">⚠ 駅・店舗・設定が変わりました。計画を作り直してください</p>' : ''}`;
 
@@ -860,7 +868,11 @@ function renderPlan() {
       : '';
 
     const err = s.error ? `<li class="tl-error">⚠ ${esc(s.error)}</li>` : '';
-    return head + stores + back + ride + err;
+    const dropped = s.dropped?.length
+      ? `<li class="tl-walk warn">⏰ 終了時刻に間に合わないので ${s.dropped.length}店を外しました（${esc(s.dropped.slice(0, 3).map((d) => d.name).join('、'))}${s.dropped.length > 3 ? ' ほか' : ''}）</li>`
+      : '';
+    const cutoff = s.cutoff ? `<li class="tl-error">⏰ ${esc(s.cutoff)}</li>` : '';
+    return head + dropped + stores + back + ride + cutoff + err;
   }).join('') + (p.endMin != null ? `
       <li class="tl-station">
         <span class="num" style="--c:#495057">🏁</span>
@@ -893,6 +905,7 @@ function syncControls() {
   $('#dwell').value = s.dwell;
   $('#transfer').value = s.transfer;
   $('#skip-recorded').checked = s.skipRecorded;
+  $('#plan-deadline').value = s.deadline;
   $('#campaign').value = s.campaign;
   $('#plan-date').value = todayISO();
   $('#plan-start').value = nowHHMM();
@@ -994,6 +1007,16 @@ for (const id of ['#plan-date', '#plan-start']) {
     renderPlan();
   });
 }
+
+function setDeadline(value) {
+  db.settings.deadline = value;
+  $('#plan-deadline').value = value;
+  markPlanStale();
+  save();
+  renderPlan();
+}
+$('#plan-deadline').addEventListener('change', (e) => setDeadline(e.target.value));
+$('#btn-clear-deadline').addEventListener('click', () => setDeadline(''));
 
 $('#skip-recorded').addEventListener('change', (e) => {
   db.settings.skipRecorded = e.target.checked;

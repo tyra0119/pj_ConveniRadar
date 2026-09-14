@@ -1,6 +1,6 @@
 // ODPT の問い合わせと、時刻表から「乗る列車」を決める処理
-import { DATA_V, ODPT_SOURCES } from './config.js?v=15344496';
-import { fetchJson, fmtMin, haversine, parseHHMM } from './util.js?v=15344496';
+import { DATA_V, ODPT_SOURCES } from './config.js?v=198d0c89';
+import { fetchJson, fmtMin, haversine, parseHHMM } from './util.js?v=198d0c89';
 
 const SERVICE_DAY_START = 4 * 60; // 鉄道の 1 日は 4:00 から。0:10 発の終電は 24:10 として数える
 const RIDE_SLOW = 250; // 所要時間の上限を見積もる速さ（m/分 = 15km/h）。これより遅い一致は別の列車とみなす
@@ -10,7 +10,7 @@ const OR_LIMIT = 10; // ODPT の OR 条件（カンマ区切り）の上限（20
 // 同じ名前でこの距離以内の駅は、乗り換えできる 1 つの駅とみなす（池袋の JR・東武・西武・メトロなど）
 const STOP_RADIUS = 800;
 
-const serviceMin = (m) => (m % 1440 < SERVICE_DAY_START ? (m % 1440) + 1440 : m % 1440);
+export const serviceMin = (m) => (m % 1440 < SERVICE_DAY_START ? (m % 1440) + 1440 : m % 1440);
 
 export async function odpt(src, path, params = {}, timeoutMs = 30000) {
   const s = ODPT_SOURCES[src];
@@ -153,7 +153,7 @@ export async function dayProfile(dateISO) {
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // 数字が大きいほどその日に合うカレンダー。0 は使わない
-function calendarScore(cal, day, specific) {
+export function calendarScore(cal, day, specific) {
   if (!cal) return 1;
   if (specific.has(cal)) return 5;
   const name = tail(cal.split(':').pop());
@@ -167,7 +167,7 @@ function calendarScore(cal, day, specific) {
   return 0;
 }
 
-async function specificSet(src, dateISO) {
+export async function specificSet(src, dateISO) {
   const list = await specificCalendars(src);
   return new Set(list.filter((c) => (c['odpt:day'] || []).includes(dateISO)).map((c) => c['owl:sameAs']));
 }

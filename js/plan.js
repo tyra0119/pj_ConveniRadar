@@ -1,7 +1,7 @@
 // 駅ごとの巡回計画: 駅で降りる → 徒歩で店を回る → 駅に戻る → 時刻表で次の駅へ
-import { findRide, loadNetwork } from './odpt.js?v=15344496';
-import { solveTsp } from './tsp.js?v=15344496';
-import { haversine } from './util.js?v=15344496';
+import { findRide, loadNetwork } from './odpt.js?v=198d0c89';
+import { solveTsp } from './tsp.js?v=198d0c89';
+import { fmtMin, haversine } from './util.js?v=198d0c89';
 
 export const WALK_SPEED = 80; // m/分（不動産広告の徒歩表示と同じ基準）
 export const WALK_FACTOR = 1.3; // 直線距離 → 道のりの係数（道路データを使わない概算）
@@ -19,6 +19,32 @@ export function stationTour(station, stores) {
     stores: order.map((i) => stores[i]),
     legs: nodes.slice(1).map((n, k) => ({ min: D[nodes[k]][n], dist: haversine(pts[nodes[k]], pts[n]) * WALK_FACTOR })),
   };
+}
+
+const tourMinutes = (tour, dwell) => tour.legs.reduce((m, l) => m + l.min, 0) + tour.stores.length * dwell;
+
+/**
+ * 使える時間（分）に収まるまで、外すと一番時間が縮む店から外す。
+ * 縮む時間 = その店への徒歩 ＋ その店からの徒歩 − 前後を直接結ぶ徒歩 ＋ 滞在
+ */
+function fitTour(station, stores, dwell, budget) {
+  let tour = stationTour(station, stores);
+  const dropped = [];
+  while (tour.stores.length && tourMinutes(tour, dwell) > budget) {
+    const pts = [station, ...tour.stores, station];
+    let bestK = 0;
+    let bestSave = -Infinity;
+    tour.stores.forEach((_, k) => {
+      const save = tour.legs[k].min + tour.legs[k + 1].min - walkMin(pts[k], pts[k + 2]) + dwell;
+      if (save > bestSave) {
+        bestSave = save;
+        bestK = k;
+      }
+    });
+    dropped.push(tour.stores[bestK]);
+    tour = stationTour(station, tour.stores.filter((_, k) => k !== bestK));
+  }
+  return { tour, dropped };
 }
 
 /**
@@ -47,8 +73,9 @@ const linesOf = (net, stop) => stop.railways.map((r) => net.railwayById.get(r)?.
  * trip: [{ id: 駅グループ ID }]（回る順）
  * storesByStop: trip と同じ長さの配列。各駅で回る店
  * startMin: 最初の駅にいる時刻（その日の 0:00 からの分）
+ * deadline: 終了時刻（分）。この時刻までに駅へ戻れるよう、間に合わない店を外し、間に合わない駅へは行かない。null なら制限なし
  */
-export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer, day }) {
+export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer, day, deadline = null }) {
   const net = await loadNetwork();
   const stops = [];
   let clock = startMin;
@@ -56,10 +83,11 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
   for (let i = 0; i < trip.length; i++) {
     const station = net.stopById.get(trip[i].id);
     if (!station) {
-      stops.push({ stationId: trip[i].id, arrive: clock, visits: [], backLeg: null, ready: clock, ride: null, error: '駅のデータが見つかりません（駅・路線データの更新で無くなった可能性があります）' });
+      stops.push({ stationId: trip[i].id, arrive: clock, visits: [], backLeg: null, ready: clock, ride: null, dropped: [], error: '駅のデータが見つかりません（駅・路線データの更新で無くなった可能性があります）' });
       break;
     }
-    const tour = stationTour(station, storesByStop[i] ?? []);
+    const budget = deadline == null ? Infinity : deadline - clock;
+    const { tour, dropped } = fitTour(station, storesByStop[i] ?? [], dwell, budget);
     const arrive = clock;
     const visits = tour.stores.map((store, k) => {
       clock += tour.legs[k].min;
@@ -69,7 +97,7 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
     });
     const back = tour.legs.at(-1);
     if (back) clock += back.min;
-    const stop = { stationId: station.id, arrive, visits, backLeg: back ?? null, ready: clock, ride: null, error: null };
+    const stop = { stationId: station.id, arrive, visits, backLeg: back ?? null, ready: clock, ride: null, dropped, cutoff: null, error: null };
     stops.push(stop);
     if (i === trip.length - 1) break;
 
@@ -96,6 +124,10 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
         + (results.every((r) => r.last) ? '。回る店を減らすか駅を外すと、最終列車に間に合うことがあります' : '');
       break;
     }
+    if (deadline != null && ride.arr >= deadline) {
+      stop.cutoff = `${next.name}駅に着くのが ${fmtMin(ride.arr)} で、終了時刻 ${fmtMin(deadline)} までに回る時間が残らないため、ここで終わります（残り ${trip.length - i - 1}駅は回りません）`;
+      break;
+    }
     stop.ride = ride;
     clock = ride.arr;
   }
@@ -103,5 +135,16 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
   const visited = stops.reduce((n, s) => n + s.visits.length, 0);
   const walk = stops.reduce((n, s) => n + s.visits.reduce((m, v) => m + v.walkMin, 0) + (s.backLeg?.min ?? 0), 0);
   const error = stops.find((s) => s.error)?.error ?? null;
-  return { stops, startMin, endMin: error ? null : clock, visited, walkMin: walk, complete: !error, error };
+  return {
+    stops,
+    startMin,
+    endMin: error ? null : clock,
+    visited,
+    walkMin: walk,
+    complete: !error,
+    error,
+    deadline,
+    dropped: stops.reduce((n, s) => n + (s.dropped?.length ?? 0), 0),
+    cutoff: stops.find((s) => s.cutoff)?.cutoff ?? null,
+  };
 }

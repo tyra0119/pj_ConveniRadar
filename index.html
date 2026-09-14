@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=15344496">
+  <link rel="stylesheet" href="css/app.css?v=198d0c89">
 </head>
 <body>
   <header class="topbar">
@@ -86,6 +86,10 @@
         <label class="field"><span>1店あたりの滞在（分）</span><input id="dwell" type="number" min="0" max="60" inputmode="numeric"></label>
         <label class="field"><span>駅に戻ってから乗るまでの余裕（分）</span><input id="transfer" type="number" min="0" max="30" inputmode="numeric"></label>
       </div>
+      <label class="field">
+        <span>終了時刻（任意）：この時刻までに駅へ戻れるよう、間に合わない店を外します</span>
+        <div class="row"><input id="plan-deadline" type="time"><button id="btn-clear-deadline" class="btn small ghost" type="button">なし</button></div>
+      </label>
       <label class="check"><input id="skip-recorded" type="checkbox"> 記録済み（購入・売切れ等）の店舗を除く</label>
       <button id="btn-plan" class="btn primary block" type="button">🚃 時刻表で計画を作る</button>
       <div id="plan-summary"></div>
@@ -127,6 +131,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=15344496"></script>
+  <script type="module" src="js/app.js?v=198d0c89"></script>
 </body>
 </html>
