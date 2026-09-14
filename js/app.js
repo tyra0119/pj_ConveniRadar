@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=619d9080';
-import { busData, loadBus } from './bus.js?v=619d9080';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=619d9080';
-import { planAreaRoute } from './area.js?v=619d9080';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=619d9080';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=619d9080';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=619d9080';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=619d9080';
-import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=619d9080';
+import { ODPT_SOURCES } from './config.js?v=875347a5';
+import { busData, loadBus } from './bus.js?v=875347a5';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=875347a5';
+import { planAreaRoute } from './area.js?v=875347a5';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=875347a5';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=875347a5';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=875347a5';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=875347a5';
+import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=875347a5';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -27,7 +27,7 @@ const DEFAULTS = {
   plan: null,
   tripMode: 'station', // いまの行程・計画がどちらの探し方のものか（area / station）
   byMode: { station: null, area: null }, // 切り替えて見ていない方の探し方の { trip, plan, searched }
-  ui: { tab: 'stores', mode: 'station', openGroups: {} }, // 表示中のタブ、探し方（area / station）、店舗一覧で開いている駅 { 駅ID: true/false }
+  ui: { tab: 'settings', mode: 'station', openGroups: {} }, // 表示中のタブ、探し方（area / station）、店舗一覧で開いている駅 { 駅ID: true/false }
   area: { center: null, source: null, radiusKm: 3, last: null }, // エリア検索の中心 { lat, lng, label }、中心の決め方（gps / map）、半径、直近の結果
 };
 
@@ -302,7 +302,7 @@ async function searchStores({ onlyMissing = false } = {}) {
     toast(`${where}${n}店舗見つかりました`, 4000);
   } else {
     const kinds = db.settings.chains.map((k) => CHAINS[k].label).join('・') || '（種類が選ばれていません）';
-    notice(`${where}駅から ${walkRadius()}m 以内に、${kinds} が見つかりませんでした。\n半径を広げるか、「店舗」タブでコンビニの種類を増やしてください。`, { title: '店舗が見つかりませんでした', icon: '🔍' });
+    notice(`${where}駅から ${walkRadius()}m 以内に、${kinds} が見つかりませんでした。\n半径を広げるか、「設定」タブでコンビニの種類を増やしてください。`, { title: '店舗が見つかりませんでした', icon: '🔍' });
   }
 }
 
@@ -812,7 +812,7 @@ function renderStores() {
 
   const all = groups.flat();
   $('#store-count').textContent = all.length ? `${all.filter((s) => !db.excluded[s.id]).length} / ${all.length}` : '';
-  $('#tab-badge-stores').textContent = `${db.settings.chains.length}種類`;
+  $('#tab-badge-settings').textContent = `${db.settings.chains.length}種類`;
   $('#store-tools').hidden = !db.searchedAt || new Set(db.trip.map((t) => t.id)).size < 2;
   const pending = new Set(unsearchedStations().map((s) => s.id));
   renderStoreHint(pending);
@@ -832,7 +832,7 @@ function renderStores() {
   // エリア検索でまだ選んでいないときは、駅検索で作った行程の店を出さない
   if (!db.trip.length || !db.searchedAt || (isAreaMode() && db.tripMode !== 'area')) {
     list.innerHTML = `<li class="empty">${isAreaMode() ? 'エリア検索では、計画を作ると、選んだ駅・バス停ごとの店がここに出ます'
-      : db.trip.length ? '店舗を探しています…' : '「探す」タブで回る駅を追加すると、近くの店がここに出ます'}</li>`;
+      : db.trip.length ? '店舗を探しています…' : '「エリア」タブで回る駅を追加すると、近くの店がここに出ます'}</li>`;
     return;
   }
 
@@ -1127,6 +1127,23 @@ function renderReport() {
   $('#report-preview').textContent = `${report.subject}\n\n${report.body}`;
 }
 
+// 計画タブの上に、設定タブで決めた条件を 1 行で出す（設定を別のタブに移したので、何で計画するかを見えるようにする）
+function renderPlanConditions() {
+  const s = db.settings;
+  const date = $('#plan-date').value || todayISO();
+  const [, m, d] = date.split('-').map(Number);
+  const start = $('#plan-start').value || nowHHMM();
+  const where = isAreaMode() ? 'エリアの中心' : '最初の駅';
+  const end = s.deadline ? `${s.deadline} まで` : isAreaMode() ? '終了時刻なし（3 時間）' : '終了時刻なし';
+  const kinds = s.chains.map((k) => CHAINS[k].label).join('・') || '（コンビニの種類が選ばれていません）';
+  $('#plan-conditions').innerHTML = [
+    s.campaign ? `🎯 ${esc(s.campaign)}` : '',
+    `📅 ${m}/${d} ${esc(start)}（${where}）から・${esc(end)}`,
+    `🏪 ${esc(kinds)}`,
+    `滞在 ${s.dwell}分・乗るまでの余裕 ${s.transfer}分${s.skipRecorded ? '・記録済みの店を除く' : ''}`,
+  ].filter(Boolean).map((line) => `<span>${line}</span>`).join('');
+}
+
 function renderRecordSummary() {
   const recs = Object.values(currentRecords()).filter((r) => r.status);
   $('#record-summary').textContent = recs.length
@@ -1255,7 +1272,7 @@ for (const [id, key, max] of [['#dwell', 'dwell', 60], ['#transfer', 'transfer',
   });
 }
 
-// 日付・開始時刻は、利用者が変えていなければ、計画タブを開くたびに今に合わせる（setTab）。
+// 日付・開始時刻は、利用者が変えていなければ、設定タブ・計画タブを開くたびに今に合わせる（setTab）。
 // ページを開いた時刻のままだと、しばらく置いてから計画を作ると過去の時刻から計画していた
 let planTimeTouched = false;
 for (const id of ['#plan-date', '#plan-start']) {
@@ -1570,7 +1587,7 @@ $('#btn-area-mapcenter').addEventListener('click', () => {
   toast('地図の中心を中心にしました。地図を動かすと、範囲も一緒に動きます');
 });
 
-// 「地図の中心」を選んでいる間は、探すタブで地図を動かすと中心も動かす（巡回中に地図を動かしても変えない）
+// 「地図の中心」を選んでいる間は、エリアタブで地図を動かすと中心も動かす（巡回中に地図を動かしても変えない）
 map.on('moveend', () => {
   if (!isAreaMode() || db.area.source !== 'map' || db.ui.tab !== 'search' || searching) return;
   const c = map.getCenter();
@@ -1600,7 +1617,6 @@ function syncModeSwitch() {
   const mode = isAreaMode() ? 'area' : 'station';
   document.querySelectorAll('.mode-btn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
   document.querySelectorAll('[data-mode-panel]').forEach((p) => p.classList.toggle('active', p.dataset.modePanel === mode));
-  $('#plan-start-label').textContent = mode === 'area' ? '開始時刻（中心にいる時刻）' : '開始時刻（最初の駅にいる時刻）';
   $('#btn-plan').textContent = mode === 'area' ? '🧭 回る駅と店を決めて計画を作る' : '🗓 時刻表で計画を作る';
 }
 
@@ -1639,19 +1655,28 @@ $('.mode-switch').addEventListener('click', (e) => {
 
 // ===== タブ =====
 // カードを縦に並べると、駅が多いときに長くなりすぎて操作しにくい（2026-09-14 利用者の指摘）ので 1 枚ずつ出す
-// 進み方は 店舗 → 探す → 計画 → 巡回（2026-09-14 利用者の指示で、店舗を最初に選ぶ形にした）
-const TABS = ['stores', 'search', 'plan', 'nav'];
+// 進み方は 設定 → エリア → 計画 → 巡回（2026-09-14 利用者の指示。くじ名・コンビニ・日時を最初にまとめて決める）
+// タブは左から右へ進む段階として見せる（番号の丸を線でつなぎ、通った段階・今の段階・この先を塗り分ける）
+const TABS = ['settings', 'search', 'plan', 'nav'];
 function setTab(name) {
-  const tab = TABS.includes(name) ? name : 'stores';
+  const tab = TABS.includes(name) ? name : 'settings';
   db.ui.tab = tab;
   save();
-  document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  const current = TABS.indexOf(tab);
+  document.querySelectorAll('.tab').forEach((b) => {
+    const i = TABS.indexOf(b.dataset.tab);
+    b.setAttribute('aria-selected', String(i === current));
+    b.dataset.state = i < current ? 'past' : i === current ? 'current' : 'future';
+    if (i === current) b.setAttribute('aria-current', 'step');
+    else b.removeAttribute('aria-current');
+  });
   document.querySelectorAll('.panel > [data-panel]').forEach((s) => s.classList.toggle('active', s.dataset.panel === tab));
   syncMapLayers();
-  if (tab === 'plan' && !planTimeTouched) {
+  if ((tab === 'settings' || tab === 'plan') && !planTimeTouched) {
     $('#plan-date').value = todayISO();
     $('#plan-start').value = nowHHMM();
   }
+  if (tab === 'plan') renderPlanConditions();
   // 切り替えた画面の先頭が見えるように戻す（PC はパネルだけがスクロールし、スマホは画面全体がスクロールする）
   const panel = $('.panel');
   if (getComputedStyle(panel).overflowY === 'auto') {
@@ -1680,6 +1705,7 @@ if (db.settings.deadline && db.settings.deadlineSetOn !== todayISO()) {
   db.settings.deadlineSetOn = '';
 }
 if (db.ui.tab === 'area') db.ui.mode = 'area'; // 以前の「エリア」タブを開いていた保存データ
+if (db.ui.tab === 'stores') db.ui.tab = 'settings'; // 以前の「店舗」タブ（今は設定タブの中）
 // 以前の保存データは行程が 1 つだけ。作った方の探し方のものとして残し、いま選んでいる探し方の行程を出す
 swapModeState(db.ui.mode === 'area' ? 'area' : 'station');
 syncControls();

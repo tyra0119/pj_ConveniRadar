@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=619d9080">
+  <link rel="stylesheet" href="css/app.css?v=875347a5">
 </head>
 <body>
   <header class="topbar">
@@ -19,11 +19,47 @@
 
   <main class="panel">
     <nav class="tabs" aria-label="画面の切り替え">
-      <button class="tab" type="button" data-tab="stores" aria-selected="true"><span class="tab-icon">🏪</span>店舗<span id="tab-badge-stores" class="tab-badge"></span></button>
-      <button class="tab" type="button" data-tab="search" aria-selected="false"><span class="tab-icon">🔍</span>探す<span id="tab-badge-search" class="tab-badge"></span></button>
-      <button class="tab" type="button" data-tab="plan" aria-selected="false"><span class="tab-icon">🗓</span>計画<span id="tab-badge-plan" class="tab-badge"></span></button>
-      <button class="tab" type="button" data-tab="nav" aria-selected="false"><span class="tab-icon">🚶</span>巡回<span id="tab-badge-nav" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="settings" aria-selected="true"><span class="tab-step">1</span><span class="tab-label">⚙ 設定</span><span id="tab-badge-settings" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="search" aria-selected="false"><span class="tab-step">2</span><span class="tab-label">🗺 エリア</span><span id="tab-badge-search" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="plan" aria-selected="false"><span class="tab-step">3</span><span class="tab-label">🗓 計画</span><span id="tab-badge-plan" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="nav" aria-selected="false"><span class="tab-step">4</span><span class="tab-label">🚶 巡回</span><span id="tab-badge-nav" class="tab-badge"></span></button>
     </nav>
+
+    <section class="card active" data-panel="settings">
+      <h2><span class="step">1</span>設定</h2>
+
+      <h3 class="subhead">くじ・グッズ</h3>
+      <label class="field">
+        <span>くじ・グッズ名（記録の単位）</span>
+        <input id="campaign" type="text" placeholder="例：一番くじ ○○">
+      </label>
+      <p id="record-summary" class="muted small"></p>
+
+      <h3 class="subhead">コンビニの種類</h3>
+      <div class="chains">
+        <label><input type="checkbox" name="chain" value="lawson"> <span class="chain-icon" data-chain="lawson"></span>ローソン</label>
+        <label><input type="checkbox" name="chain" value="seven"> <span class="chain-icon" data-chain="seven"></span>セブン-イレブン</label>
+        <label><input type="checkbox" name="chain" value="family"> <span class="chain-icon" data-chain="family"></span>ファミリーマート</label>
+        <label><input type="checkbox" name="chain" value="ministop"> <span class="chain-icon" data-chain="ministop"></span>ミニストップ</label>
+        <label><input type="checkbox" name="chain" value="newdays"> <span class="chain-icon" data-chain="newdays"></span>NewDays</label>
+      </div>
+
+      <h3 class="subhead">日時と回り方</h3>
+      <div class="grid2">
+        <label class="field"><span>日付（平日・土休日ダイヤ）</span><input id="plan-date" type="date"></label>
+        <label class="field"><span>開始時刻（回り始める所にいる時刻）</span><input id="plan-start" type="time"></label>
+        <label class="field"><span>1店あたりの滞在（分）</span><input id="dwell" type="number" min="0" max="60" inputmode="numeric"></label>
+        <label class="field"><span>駅に戻ってから乗るまでの余裕（分）</span><input id="transfer" type="number" min="0" max="30" inputmode="numeric"></label>
+      </div>
+      <p class="muted small">日付と開始時刻は、変えなければ、このタブや計画タブを開くたびに今に合わせます。</p>
+      <label class="field">
+        <span>終了時刻（任意）：この時刻までに駅へ戻れるよう、間に合わない店を外します。エリア検索で空欄のときは 3 時間で計画します</span>
+        <div class="row"><input id="plan-deadline" type="time"><button id="btn-clear-deadline" class="btn small ghost" type="button">なし</button></div>
+      </label>
+      <label class="check"><input id="skip-recorded" type="checkbox"> 記録済み（購入・売切れ等）の店舗を除く</label>
+
+      <button class="btn primary block" type="button" data-goto="search">次へ：エリアへ →</button>
+    </section>
 
     <section class="card" data-panel="search">
       <h2><span class="step">2</span>どこを回るか</h2>
@@ -84,40 +120,13 @@
       <button class="btn primary block" type="button" data-goto="plan">次へ：計画へ →</button>
     </section>
 
-    <section class="card active" data-panel="stores">
-      <h2><span class="step">1</span>コンビニの種類</h2>
-      <p class="muted small">回るコンビニを選んでください。</p>
-
-      <div class="chains">
-        <label><input type="checkbox" name="chain" value="lawson"> <span class="chain-icon" data-chain="lawson"></span>ローソン</label>
-        <label><input type="checkbox" name="chain" value="seven"> <span class="chain-icon" data-chain="seven"></span>セブン-イレブン</label>
-        <label><input type="checkbox" name="chain" value="family"> <span class="chain-icon" data-chain="family"></span>ファミリーマート</label>
-        <label><input type="checkbox" name="chain" value="ministop"> <span class="chain-icon" data-chain="ministop"></span>ミニストップ</label>
-        <label><input type="checkbox" name="chain" value="newdays"> <span class="chain-icon" data-chain="newdays"></span>NewDays</label>
-      </div>
-
-      <button class="btn primary block" type="button" data-goto="search">次へ：探す →</button>
-    </section>
-
     <section class="card" data-panel="plan">
       <h2><span class="step">3</span>計画</h2>
       <div id="plan-stale"></div>
-      <label class="field">
-        <span>くじ・グッズ名（記録の単位）</span>
-        <input id="campaign" type="text" placeholder="例：一番くじ ○○">
-      </label>
-      <p id="record-summary" class="muted small"></p>
-      <div class="grid2">
-        <label class="field"><span>日付（平日・土休日ダイヤ）</span><input id="plan-date" type="date"></label>
-        <label class="field"><span id="plan-start-label">開始時刻</span><input id="plan-start" type="time"></label>
-        <label class="field"><span>1店あたりの滞在（分）</span><input id="dwell" type="number" min="0" max="60" inputmode="numeric"></label>
-        <label class="field"><span>駅に戻ってから乗るまでの余裕（分）</span><input id="transfer" type="number" min="0" max="30" inputmode="numeric"></label>
+      <div class="plan-conditions">
+        <p id="plan-conditions" class="small grow"></p>
+        <button class="btn small ghost" type="button" data-goto="settings">⚙ 設定を変える</button>
       </div>
-      <label class="field">
-        <span>終了時刻（任意）：この時刻までに駅へ戻れるよう、間に合わない店を外します。エリア検索で空欄のときは 3 時間で計画します</span>
-        <div class="row"><input id="plan-deadline" type="time"><button id="btn-clear-deadline" class="btn small ghost" type="button">なし</button></div>
-      </label>
-      <label class="check"><input id="skip-recorded" type="checkbox"> 記録済み（購入・売切れ等）の店舗を除く</label>
 
       <h3 class="subhead">回る店 <span id="store-count" class="badge"></span></h3>
       <p class="muted small">チェックを外した店舗は計画から除外されます。駅検索では、駅を足すと自動で店を探し、いちばん近い駅に割り当てます。エリア検索では、計画を作ると選んだ駅ごとに出ます。</p>
@@ -204,6 +213,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=619d9080"></script>
+  <script type="module" src="js/app.js?v=875347a5"></script>
 </body>
 </html>

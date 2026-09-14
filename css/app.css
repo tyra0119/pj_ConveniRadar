@@ -494,23 +494,27 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
 .info .small { flex-basis: 100%; }
 
 /* タブ: カードを 1 枚ずつ出す（駅が多いと縦に長くなりすぎるため） */
+/* 左から右へ進む段階に見せる: 番号の丸を線でつなぎ、通った段階（past）・今（current）・この先（future）を塗り分ける（2026-09-14 利用者の指示） */
 .tabs {
   position: sticky;
   top: 0;
   z-index: 900;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  padding: 4px;
+  gap: 0;
+  padding: 6px 4px 4px;
   background: var(--card);
   border-radius: var(--radius);
   box-shadow: 0 1px 4px rgba(20, 30, 50, .15);
 }
 .tab {
+  --line: #dee2e6;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 5px 2px;
+  gap: 1px;
+  padding: 2px 2px 4px;
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
@@ -519,11 +523,45 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
   cursor: pointer;
   background: none;
   border: none;
-  border-radius: 8px;
+  border-bottom: 3px solid transparent;
 }
-.tab-icon { font-size: 17px; }
+/* 丸と丸をつなぐ線。左半分は前の段階から、右半分は次の段階へ */
+.tab::before, .tab::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  height: 3px;
+  background: var(--line);
+}
+.tab::before { left: 0; right: 50%; }
+.tab::after { left: 50%; right: 0; }
+.tab:first-child::before, .tab:last-child::after { display: none; }
+.tab[data-state="past"]::before, .tab[data-state="past"]::after, .tab[data-state="current"]::before { background: var(--primary); }
+.tab-step {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 50%;
+}
+.tab-label { white-space: nowrap; }
 .tab-badge { min-height: 1.3em; font-size: 11px; font-weight: 400; }
-.tab[aria-selected="true"] { color: #fff; background: var(--primary); }
+.tab[data-state="past"] .tab-step { color: var(--primary); border-color: var(--primary); }
+.tab[data-state="past"] .tab-label { color: var(--text, #212529); }
+.tab[data-state="current"] { color: var(--primary); border-bottom-color: var(--primary); }
+.tab[data-state="current"] .tab-step { color: #fff; background: var(--primary); border-color: var(--primary); box-shadow: 0 0 0 3px rgba(11, 114, 133, .2); }
+.tab:hover .tab-step { border-color: var(--primary); }
+
+/* 計画タブの上の「設定で決めた条件」 */
+.plan-conditions { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; background: #f1f3f5; border-radius: 8px; }
+.plan-conditions p { display: flex; flex-direction: column; gap: 2px; margin: 0; }
 .panel > [data-panel]:not(.active) { display: none; }
 
 /* 探し方（エリア検索／駅検索）の切り替え */
