@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=7fdcd74d';
-import { busData, loadBus } from './bus.js?v=7fdcd74d';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=7fdcd74d';
-import { planAreaRoute } from './area.js?v=7fdcd74d';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=7fdcd74d';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=7fdcd74d';
-import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=7fdcd74d';
-import { CHAINS, STATUSES, fetchStoresAround, storeDataDate } from './stores.js?v=7fdcd74d';
-import { $, ask, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=7fdcd74d';
+import { ODPT_SOURCES } from './config.js?v=921e916d';
+import { busData, loadBus } from './bus.js?v=921e916d';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=921e916d';
+import { checkAreaBases, planAreaRoute } from './area.js?v=921e916d';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=921e916d';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=921e916d';
+import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=921e916d';
+import { CHAINS, STATUSES, fetchStoresAround, storeDataDate } from './stores.js?v=921e916d';
+import { $, CancelError, ask, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=921e916d';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -251,8 +251,10 @@ function setBusy(key, message) {
   const latest = [...busyReasons.entries()].at(-1);
   $('#busy').hidden = !latest;
   if (latest) $('#busy-text').textContent = latest[1];
-  // 店舗の検索を出しているときだけ「中断」を出す（2026-09-14 利用者の指示。混雑していると長く待たされるため）
-  $('#busy-cancel').hidden = latest?.[0] !== 'search';
+  // 店舗の検索（2026-09-14 利用者の指示）と計画作り（2026-09-15 利用者の指示。店が多いと終わらなかった）の間は「中断」を出す
+  const shown = latest?.[0];
+  $('#busy-cancel').hidden = !['search', 'plan', 'area'].includes(shown);
+  $('#busy-cancel').textContent = shown === 'search' ? '✋ 検索を中断' : '✋ 計画作りを中断';
 }
 
 // 店舗の検索中は、行程・半径・計画の操作を止める（検索中に駅や半径が変わると、何を探したかが食い違うため）
@@ -263,11 +265,15 @@ function setSearching(on) {
   searchAbort = on ? new AbortController() : null;
   setBusy('search', on ? '🔍 店舗を検索しています…　終わるまで、駅や設定は変えられません' : null);
   document.body.classList.toggle('searching', on);
-  for (const el of document.querySelectorAll('#radius, #btn-search, #btn-plan, #station-search, #btn-clear-trip, #rw-select, #rw-from, #rw-to, input[name=chain]')) el.disabled = on;
+  for (const el of document.querySelectorAll('#radius, #btn-search, #station-search, #btn-clear-trip, #rw-select, #rw-from, #rw-to, input[name=chain]')) el.disabled = on;
+  syncPlanButton();
   $('#btn-add-range').disabled = on || !net?.railwayById.get($('#rw-select').value);
 }
 
-$('#busy-cancel').addEventListener('click', () => searchAbort?.abort());
+$('#busy-cancel').addEventListener('click', () => {
+  searchAbort?.abort();
+  planAbort?.abort();
+});
 
 function blockedWhileSearching() {
   if (!searching) return false;
@@ -416,16 +422,30 @@ function renderTrainInfo() {
   document.querySelectorAll('.train-info').forEach((el) => { el.innerHTML = html; });
 }
 
-async function computePlan(fromIndex = 0, useNow = false) {
+// 計画作り（計画を作る・組み直す）を「中断」で止めるための AbortController
+let planAbort = null;
+function runPlanTask(btn, label, task) {
+  planAbort = new AbortController();
+  const { signal } = planAbort;
+  return withBusy(btn, label, () => task(signal)).finally(() => {
+    planAbort = null;
+  });
+}
+
+function stopIfCancelled(signal) {
+  if (signal?.aborted) throw new CancelError('計画作りを中断しました');
+}
+
+async function computePlan(fromIndex = 0, useNow = false, signal = null) {
   setBusy('plan', '🗓 時刻表を確認して計画を作っています…');
   try {
-    return await computePlanInner(fromIndex, useNow);
+    return await computePlanInner(fromIndex, useNow, signal);
   } finally {
     setBusy('plan', null);
   }
 }
 
-async function computePlanInner(fromIndex = 0, useNow = false) {
+async function computePlanInner(fromIndex = 0, useNow = false, signal = null) {
   if (!net) throw new Error('駅データを読み込み中です。少し待ってください');
   if (!db.trip.length) throw new Error('先に回る駅を追加してください');
   if (useNow) {
@@ -447,6 +467,7 @@ async function computePlanInner(fromIndex = 0, useNow = false) {
   // 店舗を探していない駅があれば、先に探す（探さずに計画すると、その駅は店なしになる）
   if (autoSearching) await autoSearching;
   if (unsearchedStations().length) await searchStores({ onlyMissing: true });
+  stopIfCancelled(signal);
 
   const records = currentRecords();
   const skip = useNow || db.settings.skipRecorded;
@@ -461,6 +482,7 @@ async function computePlanInner(fromIndex = 0, useNow = false) {
     day: await dayProfile(date),
     deadline,
     modes: currentModes(),
+    signal,
   });
   db.plan = { ...plan, fromIndex, date, startTime, stale: false };
   planOpen.clear();
@@ -977,6 +999,18 @@ function legRow(s, nextName) {
 
 const destLabel = (dest) => (dest?.length ? `${dest.map(stopName).join('・')}行` : '');
 
+// 「計画を作る」は、計画を作ったら押せなくする（2026-09-15 利用者の指示）。作ったあとに場所・店・設定を変えて計画が古くなったら、また押せる。
+// 店舗の検索中も押せない。押して計画を作っている間は、表示を withBusy に任せる（planBusy）
+let planBusy = false;
+function syncPlanButton() {
+  if (planBusy) return;
+  const btn = $('#btn-plan');
+  const made = !!db.plan && !db.plan.stale;
+  btn.disabled = searching || made;
+  btn.textContent = made ? '✓ 計画を作りました（場所・設定を変えると作り直せます）'
+    : isAreaMode() ? '🧭 回る駅と店を決めて計画を作る' : '🗓 時刻表で計画を作る';
+}
+
 // 巡回で記録のボタンを開いている店。null なら次に回る店、'' なら開かない
 let navOpenStore = null;
 let navOpenShown = null;
@@ -990,6 +1024,7 @@ function renderPlan() {
   $('#plan-empty').hidden = !!p;
   $('#plan-result').hidden = !p;
   $('#btn-goto-nav').disabled = !p;
+  syncPlanButton();
   if (!p) {
     $('#plan-summary').innerHTML = '';
     $('#plan-stale').innerHTML = '';
@@ -1322,7 +1357,12 @@ document.querySelectorAll('input[name=chain]').forEach((el) => el.addEventListen
 // 「計画を作る」は 1 つ。エリア検索なら回る駅と店を選んでから、駅周辺検索なら行程のまま計画を作る
 $('#btn-plan').addEventListener('click', (e) => {
   const btn = e.currentTarget;
-  withBusy(btn, isAreaMode() ? '準備中…' : '時刻表を確認中…', () => (isAreaMode() ? computeArea(btn) : computePlan(0, false)));
+  planBusy = true;
+  runPlanTask(btn, isAreaMode() ? '準備中…' : '時刻表を確認中…', (signal) => (isAreaMode() ? computeArea(btn, signal) : computePlan(0, false, signal)))
+    .finally(() => {
+      planBusy = false;
+      syncPlanButton();
+    });
 });
 
 $('#campaign').addEventListener('change', (e) => {
@@ -1481,7 +1521,7 @@ $('#store-list').addEventListener('click', (e) => {
 
 $('#stale-banner').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action=replan]');
-  if (btn) withBusy(btn, '時刻表を確認中…', () => computePlan(Number(btn.dataset.index), true));
+  if (btn) runPlanTask(btn, '時刻表を確認中…', (signal) => computePlan(Number(btn.dataset.index), true, signal));
 });
 
 $('#plan-list').addEventListener('click', (e) => {
@@ -1506,7 +1546,7 @@ $('#plan-list').addEventListener('click', (e) => {
     planOpen.set(i, !isStopOpen(i, currentPlanStop(db.plan, currentRecords())));
     renderPlan();
   } else if (btn.dataset.action === 'replan') {
-    withBusy(btn, '確認中…', () => computePlan(Number(btn.dataset.index), true));
+    runPlanTask(btn, '確認中…', (signal) => computePlan(Number(btn.dataset.index), true, signal));
   }
 });
 
@@ -1609,15 +1649,15 @@ function setAreaCenter(center, source, { fit = true } = {}) {
   if (fit) map.fitBounds(L.latLng(center.lat, center.lng).toBounds(db.area.radiusKm * 2000));
 }
 
-async function computeArea(btn) {
+async function computeArea(btn, signal = null) {
   try {
-    return await computeAreaInner(btn);
+    return await computeAreaInner(btn, signal);
   } finally {
     setBusy('area', null);
   }
 }
 
-async function computeAreaInner(btn) {
+async function computeAreaInner(btn, signal = null) {
   const step = (msg) => {
     btn.textContent = msg;
     setBusy('area', `🧭 ${msg}`);
@@ -1640,6 +1680,9 @@ async function computeAreaInner(btn) {
   step('データを読み込み中…');
   if (modes.bus) await loadBus();
   if (modes.bike) await Promise.all([loadBikeInfo(), loadBikeStatus()]);
+  // 範囲内に駅・バス停が無い（データの無い地域など）ときは、店舗を探す前に理由を出して止める
+  checkAreaBases({ net, bus: modes.bus ? busData() : null, center: area.center, radiusM: area.radiusKm * 1000 });
+  stopIfCancelled(signal);
 
   step('範囲内の店舗を検索中…');
   setSearching(true);
@@ -1650,9 +1693,11 @@ async function computeAreaInner(btn) {
   } finally {
     setSearching(false);
   }
+  stopIfCancelled(signal);
 
   step('回る順番を選んでいます…');
   await new Promise((r) => setTimeout(r, 30)); // ボタンの表示を更新させてから重い計算に入る
+  stopIfCancelled(signal);
   const records = currentRecords();
   const candidates = found.filter((s) => db.settings.chains.includes(s.chain) && !db.excluded[s.id] && !(db.settings.skipRecorded && records[s.id]?.status));
   const result = planAreaRoute({
@@ -1693,7 +1738,7 @@ async function computeAreaInner(btn) {
   step('時刻表で計画を作っています…');
   $('#plan-start').value = toHHMM(startMin + result.walkToStart);
   try {
-    await computePlan(0, false);
+    await computePlan(0, false, signal);
   } finally {
     $('#plan-start').value = startTime; // 入力欄は利用者が入れた開始時刻に戻す
   }
@@ -1741,7 +1786,7 @@ function syncModeSwitch() {
   const mode = isAreaMode() ? 'area' : 'station';
   document.querySelectorAll('.mode-btn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
   document.querySelectorAll('[data-mode-panel]').forEach((p) => p.classList.toggle('active', p.dataset.modePanel === mode));
-  $('#btn-plan').textContent = mode === 'area' ? '🧭 回る駅と店を決めて計画を作る' : '🗓 時刻表で計画を作る';
+  syncPlanButton();
 }
 
 // エリア検索と駅周辺検索は排他（2026-09-15 利用者の指示）。切り替えると、前の探し方で決めた行程・見つけた店・計画・エリアの中心は消す。

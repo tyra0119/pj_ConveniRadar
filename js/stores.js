@@ -1,6 +1,6 @@
 // コンビニの検索（OpenStreetMap）。チェーン判定と重複除去は lawson/app.js から移したもの
-import { DATA_V } from './config.js?v=7fdcd74d';
-import { CancelError, fetchJson, haversine } from './util.js?v=7fdcd74d';
+import { DATA_V } from './config.js?v=921e916d';
+import { CancelError, fetchJson, haversine } from './util.js?v=921e916d';
 
 // icon はチェーンの配色をもとにした簡易アイコン（公式ロゴではない）
 export const CHAINS = {

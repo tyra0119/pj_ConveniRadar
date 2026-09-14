@@ -1,9 +1,9 @@
 // 巡回計画: 停留所（駅・バス停）で降りる → 徒歩で店を回る → 戻る → 電車・バス・徒歩で次の停留所へ
-import { findBikeRide } from './bike.js?v=7fdcd74d';
-import { busData, commonBusPatterns, findBusRide, loadBus } from './bus.js?v=7fdcd74d';
-import { findRide, loadNetwork } from './odpt.js?v=7fdcd74d';
-import { solveTsp } from './tsp.js?v=7fdcd74d';
-import { fmtMin, haversine } from './util.js?v=7fdcd74d';
+import { findBikeRide } from './bike.js?v=921e916d';
+import { busData, commonBusPatterns, findBusRide, loadBus } from './bus.js?v=921e916d';
+import { findRide, loadNetwork } from './odpt.js?v=921e916d';
+import { solveTsp } from './tsp.js?v=921e916d';
+import { CancelError, fmtMin, haversine } from './util.js?v=921e916d';
 
 export const WALK_SPEED = 80; // m/分（不動産広告の徒歩表示と同じ基準）
 export const WALK_FACTOR = 1.3; // 直線距離 → 道のりの係数（道路データを使わない概算）
@@ -36,8 +36,36 @@ const tourMinutes = (tour, dwell) => tour.legs.reduce((m, l) => m + l.min, 0) + 
  * 縮む時間 = その店への徒歩 ＋ その店からの徒歩 − 前後を直接結ぶ徒歩 ＋ 滞在
  */
 function fitTour(station, stores, dwell, budget) {
-  let tour = stationTour(station, stores);
   const dropped = [];
+  let pool = stores;
+  // 店が多いときに全部の順番を求めてから 1 店ずつ外すと、外すたびに最適化をやり直して終わらない（2026-09-15）。
+  // 使える時間が決まっているときは、先に近い順の概算で「入りそうな店」（余裕を見て時間の 1.3 倍まで）に絞る
+  if (Number.isFinite(budget) && stores.length > 15) {
+    const left = [...stores];
+    const keep = [];
+    let cur = station;
+    let t = 0;
+    while (left.length) {
+      let bi = 0;
+      let bd = Infinity;
+      left.forEach((s, i) => {
+        const d = walkMin(cur, s);
+        if (d < bd) {
+          bd = d;
+          bi = i;
+        }
+      });
+      const s = left[bi];
+      if (t + bd + dwell + walkMin(s, station) > budget * 1.3) break;
+      left.splice(bi, 1);
+      t += bd + dwell;
+      keep.push(s);
+      cur = s;
+    }
+    dropped.push(...left);
+    pool = keep;
+  }
+  let tour = stationTour(station, pool);
   while (tour.stores.length && tourMinutes(tour, dwell) > budget) {
     const pts = [station, ...tour.stores, station];
     let bestK = 0;
@@ -104,7 +132,8 @@ export function hopOptions(net, fromId, toId, walkMax = WALK_HOP_MAX) {
  */
 // modes: 使う移動手段 { rail, bus, bike }。徒歩（1.5km 以内）は常に使う。
 // 全部外したときは徒歩だけで案内する（2026-09-15 利用者の指示）ので、停留所の間を歩く距離に上限を付けない
-export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer, day, deadline = null, modes = { rail: true, bus: true, bike: false } }) {
+// signal: 利用者が「中断」を押したら、次の停留所に進む前に止める（CancelError）
+export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer, day, deadline = null, modes = { rail: true, bus: true, bike: false }, signal = null }) {
   const walkMax = !modes.rail && !modes.bus && !modes.bike ? Infinity : WALK_HOP_MAX;
   const net = await loadNetwork();
   if (trip.some((t) => String(t.id).startsWith('bus:'))) await loadBus();
@@ -112,6 +141,9 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
   let clock = startMin;
 
   for (let i = 0; i < trip.length; i++) {
+    // 停留所ごとに画面へ処理を返し、「中断」を押せるようにする
+    await new Promise((r) => setTimeout(r, 0));
+    if (signal?.aborted) throw new CancelError('計画作りを中断しました');
     const station = stopOf(net, trip[i].id);
     if (!station) {
       stops.push({ stationId: trip[i].id, arrive: clock, visits: [], backLeg: null, ready: clock, ride: null, dropped: [], error: '駅・バス停のデータが見つかりません（データの更新で無くなった可能性があります）' });

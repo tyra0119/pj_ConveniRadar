@@ -1,9 +1,9 @@
 // エリア巡回モード: 中心と半径の中から、終了時刻までに回れる店が多くなるように、拠点（駅・バス停）と順番を選ぶ。
 // ここで使う移動時間は見積もり。選んだ順番を行程に入れたあと、実際の時刻表での計画は plan.js の buildPlan が作る
-import { portAccess } from './bike.js?v=7fdcd74d';
-import { commonBusPatterns } from './bus.js?v=7fdcd74d';
-import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, commonRailways } from './plan.js?v=7fdcd74d';
-import { haversine } from './util.js?v=7fdcd74d';
+import { portAccess } from './bike.js?v=921e916d';
+import { commonBusPatterns } from './bus.js?v=921e916d';
+import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, commonRailways } from './plan.js?v=921e916d';
+import { haversine } from './util.js?v=921e916d';
 
 const RAIL_SPEED = 550; // 駅間の見積もりの速さ（m/分 ≈ 33km/h、停車込み）
 const RAIL_WAIT = 5; // 列車を待つ時間の見積もり（分）
@@ -163,9 +163,25 @@ function chooseRoute({ net, bases, start, startMin, deadline, dwell, transfer, m
  * startMin / deadline: 中心にいる時刻と終了時刻（分）
  * 返り値: { start, walkToStart, route: [{ base, count, arrive, travel }], endMin, visited, bases }
  */
-export function planAreaRoute({ net, bus, center, radiusM, stores, startMin, deadline, dwell, transfer, modes }) {
+/**
+ * 範囲内に拠点（駅・バス停）があるか確かめ、無ければ理由を投げる。範囲内の拠点を返す。
+ * データの無い地域（公共交通オープンデータに時刻表のある路線が無い所。例: 神戸市北区）は、半径を広げても使えないので分けて知らせる
+ * （2026-09-15 利用者が神戸市北区上津台で試し、「半径を広げてください」だけが出た）。店舗を探す前に呼ぶ（範囲外の店舗は Overpass に問い合わせるため）
+ */
+export function checkAreaBases({ net, bus, center, radiusM }) {
   const all = collectBases({ net, bus, center, radiusM });
-  if (!all.length) throw new Error('範囲内に駅・バス停がありません。半径を広げてください');
+  if (all.length) return all;
+  let nearest = Infinity;
+  for (const s of [...net.stops, ...(bus?.stops ?? [])]) nearest = Math.min(nearest, haversine(center, s));
+  if (nearest > radiusM + 20000) {
+    throw new Error(`この付近には、計画に使える駅・バス停のデータがありません（一番近い駅まで約${Math.round(nearest / 1000)}km）。`
+      + '今は、公共交通オープンデータに時刻表がある首都圏などの路線だけに対応しています');
+  }
+  throw new Error(`範囲内に駅・バス停がありません（一番近い駅・バス停まで約${(nearest / 1000).toFixed(1)}km）。半径を広げてください`);
+}
+
+export function planAreaRoute({ net, bus, center, radiusM, stores, startMin, deadline, dwell, transfer, modes }) {
+  const all = checkAreaBases({ net, bus, center, radiusM });
 
   // 中心から歩いて行ける、一番近い駅・バス停から始める
   let start = all[0];
