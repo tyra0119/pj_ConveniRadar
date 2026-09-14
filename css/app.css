@@ -404,6 +404,8 @@ footer a { color: inherit; }
   padding: 6px 0 6px 20px;
   border-left: 5px solid var(--c, var(--primary));
 }
+.tl-ride.bus { border-left-style: dashed; }
+.tl-hop-walk { padding: 6px 0 6px 38px; font-size: 13px; }
 .tl-error { padding: 8px 10px; font-size: 13.5px; color: var(--warn); background: #fff4e6; border-radius: 8px; }
 
 /* 店舗を検索し直す案内（半径スライダーの下） */

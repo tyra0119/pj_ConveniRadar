@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=198d0c89">
+  <link rel="stylesheet" href="css/app.css?v=9beb78a2">
 </head>
 <body>
   <header class="topbar">
@@ -27,7 +27,7 @@
 
     <section class="card active" data-panel="trip">
       <h2><span class="step">1</span>回る駅 <span id="trip-count" class="badge"></span></h2>
-      <input id="station-search" type="search" placeholder="駅名で検索して追加" autocomplete="off">
+      <input id="station-search" type="search" placeholder="駅名・バス停名で検索して追加" autocomplete="off">
       <ul id="station-results" class="results"></ul>
 
       <details class="range">
@@ -110,11 +110,11 @@
     <footer class="muted small attribution">
       <p>
         <strong class="unofficial">非公式</strong>
-        このサイトは<span class="odpt-owner">各鉄道事業者</span>が運営するものではありません。表示内容について事業者へお問い合わせなさらないでください。
+        このサイトは<span class="odpt-owner">各事業者</span>が運営するものではありません。表示内容について事業者へお問い合わせなさらないでください。
       </p>
       <p>
         本サービスは、<a href="https://www.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>において提供されるデータ（公共交通オープンデータチャレンジで提供されるデータを含む）を利用しています。
-        データの原典は<span class="odpt-owner">各鉄道事業者</span>です。
+        データの原典は<span class="odpt-owner">各事業者</span>です。
         本サービスの内容は必ずしも正確でない場合があり、必ずしも事業者の見解を反映するものではありません。
         ダイヤ改正・運休・遅延などの最新情報は各事業者の公式サイトでご確認ください。
         データに関するお問い合わせは<a href="https://www.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>へお願いいたします。
@@ -131,6 +131,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=198d0c89"></script>
+  <script type="module" src="js/app.js?v=9beb78a2"></script>
 </body>
 </html>

@@ -1,9 +1,10 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=198d0c89';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=198d0c89';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=198d0c89';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=198d0c89';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=198d0c89';
+import { ODPT_SOURCES } from './config.js?v=9beb78a2';
+import { busData, loadBus } from './bus.js?v=9beb78a2';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=9beb78a2';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=9beb78a2';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=9beb78a2';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=9beb78a2';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -64,6 +65,15 @@ function railwayLabel(id) {
 }
 
 const railwayColor = (id) => net?.railwayById.get(id)?.color || '#0b7285';
+const BUS_COLOR = '#2b8a3e';
+
+// 行程の停留所は、駅グループ（stop:…）かバス停（bus:…）。駅 ID・ポール ID からも引ける
+function stopById(id) {
+  const key = String(id ?? '');
+  return key.startsWith('bus:') ? busData()?.stopById.get(key) : net?.stopById.get(key) ?? busData()?.stopById.get(key);
+}
+const stopName = (id) => stopById(id)?.name ?? odptStationName(id);
+const stopWord = (id) => (String(id).startsWith('bus:') ? 'バス停' : '駅');
 
 // ===== 操作 =====
 function markPlanStale() {
@@ -74,7 +84,7 @@ function markPlanStale() {
 function addStations(ids) {
   if (blockedWhileSearching()) return;
   let added = 0;
-  for (const id of ids.map((x) => net?.stopById.get(x)?.id ?? x)) {
+  for (const id of ids.map((x) => stopById(x)?.id ?? x)) {
     if (db.trip.at(-1)?.id === id) continue;
     db.trip.push({ id });
     added++;
@@ -83,7 +93,7 @@ function addStations(ids) {
   markPlanStale();
   save();
   renderAll();
-  toast(added === 1 ? `「${stationName(ids.at(-1))}」を追加しました` : `${added}駅を追加しました`);
+  toast(added === 1 ? `「${stopName(ids.at(-1))}」を追加しました` : `${added}駅を追加しました`);
   autoSearchMissing();
   refreshTrainInfo();
 }
@@ -115,7 +125,7 @@ function betweenStops(links) {
       const other = i < k ? [...order.slice(0, i).reverse(), ...order.slice(k + 1).reverse()] : [...order.slice(i + 1), ...order.slice(0, k)];
       if (other.length < ids.length) ids = other;
     }
-    const stops = [...new Set(ids.map((id) => net.stopById.get(id)?.id).filter(Boolean))];
+    const stops = [...new Set(ids.map((id) => stopById(id)?.id).filter(Boolean))];
     if (!stops.length) continue;
     const same = out.find((f) => f.stops.join() === stops.join());
     if (same) same.titles.push(l.railway.title);
@@ -158,7 +168,7 @@ function assignStores() {
     let best = -1;
     let bestD = Infinity;
     for (const [id, i] of first) {
-      const st = net.stopById.get(id);
+      const st = stopById(id);
       const d = st ? haversine(st, s) : Infinity;
       if (d < bestD) {
         bestD = d;
@@ -191,7 +201,7 @@ function unsearchedStations() {
   if (!net) return [];
   return [...new Set(db.trip.map((t) => t.id))]
     .filter((id) => (db.searched[id] ?? 0) < db.settings.radius)
-    .map((id) => net.stopById.get(id))
+    .map((id) => stopById(id))
     .filter(Boolean);
 }
 
@@ -201,7 +211,7 @@ async function searchStores({ onlyMissing = false } = {}) {
   if (!db.trip.length) throw new Error('先に回る駅を追加してください');
   const stations = onlyMissing
     ? unsearchedStations()
-    : [...new Set(db.trip.map((t) => t.id))].map((id) => net.stopById.get(id)).filter(Boolean);
+    : [...new Set(db.trip.map((t) => t.id))].map((id) => stopById(id)).filter(Boolean);
   if (!stations.length) return;
 
   // 検索中に半径を動かされても、実際に探した半径で「検索済み」を記録する
@@ -266,7 +276,7 @@ function tripRailways() {
     const next = db.trip[i + 1];
     if (next) for (const l of commonRailways(net, t.id, next.id)) ids.add(l.railway.id);
   });
-  for (const s of db.plan?.stops ?? []) if (s.ride) ids.add(s.ride.railway);
+  for (const s of db.plan?.stops ?? []) if (s.ride?.railway) ids.add(s.ride.railway); // バス・徒歩の区間は除く
   return [...ids];
 }
 
@@ -394,6 +404,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 const layers = {
   stations: L.layerGroup(),
+  busStops: L.layerGroup().addTo(map),
   trip: L.layerGroup().addTo(map),
   route: L.layerGroup().addTo(map),
   stores: L.layerGroup().addTo(map),
@@ -437,9 +448,43 @@ function buildStationLayer() {
   syncStationLayer();
 }
 
+// バス停は 1 万以上あるので、さらに拡大したときに、見えている範囲の分だけ出す
+const BUS_MIN_ZOOM = 15;
+function syncBusLayer() {
+  layers.busStops.clearLayers();
+  if (map.getZoom() < BUS_MIN_ZOOM || !busData()) return;
+  const bounds = map.getBounds().pad(0.2);
+  for (const stop of busData().stops) {
+    if (!bounds.contains([stop.lat, stop.lng])) continue;
+    L.circleMarker([stop.lat, stop.lng], {
+      radius: 5, color: '#fff', weight: 1.5, fillColor: BUS_COLOR, fillOpacity: 0.95,
+    })
+      .bindTooltip(`🚌 ${stop.name}`, { direction: 'top', offset: [0, -5] })
+      .bindPopup(() => busStopPopup(stop))
+      .addTo(layers.busStops);
+  }
+}
+map.on('moveend', syncBusLayer);
+
+function busStopPopup(stop) {
+  const pos = db.trip.map((t, i) => (t.id === stop.id ? i + 1 : 0)).filter(Boolean);
+  const div = document.createElement('div');
+  div.className = 'popup';
+  div.innerHTML = `
+    <b>🚌 ${esc(stop.name)}</b>
+    <div class="muted small">${esc(stop.operators.join('・'))} ・ ${esc(stop.routes.slice(0, 8).join('・'))}</div>
+    ${pos.length ? `<div class="small">行程の ${pos.join('・')} 番目</div>` : ''}
+    <button class="btn small primary block" type="button">＋ 行程の最後に追加</button>`;
+  div.querySelector('button').onclick = () => {
+    map.closePopup();
+    addStations([stop.id]);
+  };
+  return div;
+}
+
 // 駅のマーカー（路線ごとの駅）から開いても、乗り換えできる駅全体として出す
 function stationPopup(st) {
-  const stop = net.stopById.get(st.id) ?? st;
+  const stop = stopById(st.id) ?? st;
   const pos = db.trip.map((t, i) => (t.id === stop.id ? i + 1 : 0)).filter(Boolean);
   const div = document.createElement('div');
   div.className = 'popup';
@@ -474,7 +519,7 @@ function storePopup(s) {
 }
 
 function tripBounds() {
-  const pts = db.trip.map((t) => net?.stopById.get(t.id)).filter(Boolean).map((s) => [s.lat, s.lng]);
+  const pts = db.trip.map((t) => stopById(t.id)).filter(Boolean).map((s) => [s.lat, s.lng]);
   return pts.length ? L.latLngBounds(pts) : null;
 }
 
@@ -518,17 +563,24 @@ function renderTrip() {
     if (next && net && next.id !== t.id) {
       const links = commonRailways(net, t.id, next.id);
       const fills = betweenStops(links);
-      link = links.length
-        ? `<div class="trip-link">↓ ${esc(links.map((l) => l.railway.title + (alertOf(l.railway.id) ? `（⚠${alertOf(l.railway.id).status}）` : '')).join(' / '))}
+      // 電車の路線・バスの系統・徒歩（1.5km 以内）のうち、使えるものを並べる
+      const opt = hopOptions(net, t.id, next.id);
+      const parts = [
+        ...links.map((l) => l.railway.title + (alertOf(l.railway.id) ? `（⚠${alertOf(l.railway.id).status}）` : '')),
+        ...(opt.bus.length ? [`🚌 ${[...new Set(opt.bus.map((l) => l.pattern.route).filter(Boolean))].slice(0, 4).join('・')}`] : []),
+        ...(opt.walk ? [`🚶 徒歩 約${Math.max(1, Math.round(opt.walk.min))}分`] : []),
+      ];
+      link = parts.length
+        ? `<div class="trip-link">↓ ${esc(parts.join(' / '))}
             ${fills.map((f, k) => `<button class="btn small ghost" type="button" data-action="fill" data-fill="${k}">＋ 間の${f.stops.length}駅を追加（${esc(f.titles.join('・'))}）</button>`).join('')}
           </div>`
-        : '<div class="trip-link warn">↓ 乗り換えなしで行ける路線がありません。乗り換えにはまだ対応していないので、間に乗り換える駅を追加してください</div>';
+        : '<div class="trip-link warn">↓ 乗り換えなしで行ける電車・バスがなく、歩くにも遠すぎます。乗り換えにはまだ対応していないので、間に乗り換える駅・バス停を追加してください</div>';
     }
     return `
       <li class="trip-item" data-index="${i}">
         <div class="row">
           <span class="num" style="--c:var(--primary)">${i + 1}</span>
-          <span class="grow store-name">${esc(stationName(t.id))}</span>
+          <span class="grow store-name">${esc(stopName(t.id))}</span>
           <button class="icon-btn" type="button" data-action="up" title="上へ"${i === 0 ? ' disabled' : ''}>↑</button>
           <button class="icon-btn" type="button" data-action="down" title="下へ"${i === db.trip.length - 1 ? ' disabled' : ''}>↓</button>
           <button class="icon-btn" type="button" data-action="remove" title="外す">✕</button>
@@ -541,12 +593,12 @@ function renderTrip() {
   const labels = new Map();
   db.trip.forEach((t, i) => labels.set(t.id, [...(labels.get(t.id) ?? []), i + 1]));
   for (const [id, nums] of labels) {
-    const st = net.stopById.get(id);
+    const st = stopById(id);
     if (!st) continue;
     L.circle([st.lat, st.lng], {
       radius: db.settings.radius, color: '#0b7285', weight: 1, fillOpacity: 0.05, interactive: false,
     }).addTo(layers.trip);
-    L.marker([st.lat, st.lng], { icon: pinIcon('#0b7285', nums.join('・')), zIndexOffset: 1000 })
+    L.marker([st.lat, st.lng], { icon: pinIcon(st.kind === 'bus' ? BUS_COLOR : '#0b7285', nums.join('・')), zIndexOffset: 1000 })
       .bindTooltip(st.name, { direction: 'top', offset: [0, -14] })
       .bindPopup(() => stationPopup(st))
       .addTo(layers.trip);
@@ -565,17 +617,17 @@ function renderStationResults() {
     box.innerHTML = '<li class="empty">駅データを読み込み中です…</li>';
     return;
   }
-  const hits = net.stops
+  const hits = [...net.stops, ...(busData()?.stops ?? [])]
     .filter((s) => norm(s.name).includes(q))
     .sort((a, b) => (norm(b.name) === q) - (norm(a.name) === q) || a.name.length - b.name.length)
     .slice(0, SEARCH_LIMIT);
   box.innerHTML = hits.length
     ? hits.map((s) => `
       <li><button type="button" class="result" data-id="${esc(s.id)}">
-        <b>${esc(s.name)}</b>
-        <span class="muted small">${esc(s.railways.map(railwayLabel).join('、'))}</span>
+        <b>${s.kind === 'bus' ? '🚌' : '🚉'} ${esc(s.name)}</b>
+        <span class="muted small">${esc(s.kind === 'bus' ? `バス停 ・ ${s.operators.join('・')} ${s.routes.slice(0, 6).join('・')}` : s.railways.map(railwayLabel).join('、'))}</span>
       </button></li>`).join('')
-    : '<li class="empty">見つかりません（時刻表のある路線の駅だけを収録しています）</li>';
+    : `<li class="empty">見つかりません（時刻表のある駅・バス停だけを収録しています）${busData() ? '' : '。バス停は読み込み中です'}</li>`;
 }
 
 function fillRailwaySelect() {
@@ -592,7 +644,7 @@ function fillRailwaySelect() {
 
 function fillRangeSelects() {
   const rw = net?.railwayById.get($('#rw-select').value);
-  const opts = rw ? rw.order.map((id, i) => `<option value="${i}">${esc(stationName(id))}</option>`).join('') : '';
+  const opts = rw ? rw.order.map((id, i) => `<option value="${i}">${esc(stopName(id))}</option>`).join('') : '';
   $('#rw-from').innerHTML = opts;
   $('#rw-to').innerHTML = opts;
   if (rw) $('#rw-to').value = String(Math.min(rw.order.length - 1, 3));
@@ -672,7 +724,7 @@ function renderStores() {
         <button class="group-toggle" type="button" data-action="toggle-group" aria-expanded="${opened}">
           <span class="chev">${opened ? '▾' : '▸'}</span>
           <span class="num" style="--c:var(--primary)">${i + 1}</span>
-          <span class="group-name">${esc(stationName(id))}</span>
+          <span class="group-name">${esc(stopName(id))}</span>
           ${pending.has(id)
             ? `<span class="small warn">${autoSearching ? '検索中…' : '未検索'}</span>`
             : `<span class="muted small">${g.filter((s) => !db.excluded[s.id]).length}/${g.length}店</span>`}
@@ -732,7 +784,19 @@ function currentTripIndex() {
   return i >= 0 ? i : Math.min(p.fromIndex, db.trip.length - 1);
 }
 
-const destLabel = (dest) =>(dest?.length ? `${dest.map(stationName).join('・')}行` : '');
+// バスと徒歩の区間の行（電車は renderPlan の中）
+function otherRideRow(s, nextName) {
+  const r = s.ride;
+  if (r.mode === 'walk') {
+    return `<li class="tl-hop-walk">🚶 <b>${esc(nextName)}まで徒歩</b> 約${Math.max(1, Math.round(r.arr - r.dep))}分（${fmtDist(r.dist)}）→ ${fmtMin(r.arr)}着</li>`;
+  }
+  return `<li class="tl-ride bus" style="--c:${BUS_COLOR}">
+      <div>🚌 <b>${fmtMin(r.dep)}発</b> ${esc(r.route)} ${r.dest ? `${esc(r.dest)}行` : ''}</div>
+      <div class="muted small">${esc(r.operator)} ・ 待ち${Math.max(0, Math.round(r.dep - s.ready))}分 → <b>${fmtMin(r.arr)}着</b></div>
+    </li>`;
+}
+
+const destLabel = (dest) => (dest?.length ? `${dest.map(stopName).join('・')}行` : '');
 
 function renderPlan() {
   layers.route.clearLayers();
@@ -751,7 +815,7 @@ function renderPlan() {
   const records = currentRecords();
   const rides = p.stops.map((s) => s.ride).filter(Boolean);
   const usesChallenge = rides.some((r) => net?.railwayById.get(r.railway)?.src === 'chl');
-  const firstName = stationName(p.stops[0]?.stationId);
+  const firstName = stopName(p.stops[0]?.stationId);
 
   $('#plan-summary').innerHTML = `
     <div class="summary">
@@ -759,7 +823,7 @@ function renderPlan() {
       <div><span class="big">${fmtDur(p.walkMin * 60)}</span><span class="label">歩く時間</span></div>
       <div><span class="big">${p.endMin != null ? fmtMin(p.endMin) : '—'}</span><span class="label">終了</span></div>
     </div>
-    <p class="small">${esc(p.date)} ${fmtMin(p.startMin)} ${esc(firstName)}から ${p.stops.length}駅・乗車${rides.length}回</p>
+    <p class="small">${esc(p.date)} ${fmtMin(p.startMin)} ${esc(firstName)}から ${p.stops.length}か所・移動${rides.length}回</p>
     ${rides.some((r) => r.estimated) ? '<p class="small muted">「推定」の着時刻は、次の駅の時刻表や距離から見積もったものです</p>' : ''}
     ${usesChallenge ? `<p class="small muted">公共交通オープンデータチャレンジの時刻表を含みます（${ODPT_SOURCES.chl.until} まで）</p>` : ''}
     ${p.deadline != null ? `<p class="small">⏰ 終了時刻 ${fmtMin(p.deadline)}（駅に戻るまで）・ ${p.dropped ? `間に合わない ${p.dropped}店を外しました` : '選んだ店はすべて間に合います'}</p>` : ''}
@@ -769,14 +833,14 @@ function renderPlan() {
 
   // 地図: 駅から店を回る徒歩は破線、駅間の乗車は路線の色の実線
   p.stops.forEach((s, i) => {
-    const st = net?.stopById.get(s.stationId);
+    const st = stopById(s.stationId);
     if (!st) return;
     if (s.visits.length) {
       L.polyline([[st.lat, st.lng], ...s.visits.map((v) => [v.store.lat, v.store.lng]), [st.lat, st.lng]], {
         color: '#c2255c', weight: 4, opacity: 0.75, dashArray: '6 8', interactive: false,
       }).addTo(layers.route);
     }
-    const nx = s.ride && net.stopById.get(p.stops[i + 1]?.stationId);
+    const nx = s.ride && stopById(p.stops[i + 1]?.stationId);
     if (nx) {
       const line = [[st.lat, st.lng], [nx.lat, nx.lng]];
       const alert = alertOf(s.ride.railway);
@@ -786,7 +850,11 @@ function renderPlan() {
           .bindTooltip(`⚠ ${esc(alert.status)}：${esc(alert.text)}`, { sticky: true, className: 'info-tip' })
           .addTo(layers.route);
       }
-      L.polyline(line, { color: railwayColor(s.ride.railway), weight: 6, opacity: 0.8, interactive: false }).addTo(layers.route);
+      // 電車は路線の色の実線、バスは緑の破線、徒歩は灰色の点線
+      const style = s.ride.mode === 'bus' ? { color: BUS_COLOR, weight: 5, dashArray: '10 6' }
+        : s.ride.mode === 'walk' ? { color: '#495057', weight: 4, dashArray: '2 8' }
+          : { color: railwayColor(s.ride.railway), weight: 6 };
+      L.polyline(line, { ...style, opacity: 0.8, interactive: false }).addTo(layers.route);
     }
   });
 
@@ -799,7 +867,7 @@ function renderPlan() {
     const from = currentTripIndex();
     banner.innerHTML = `
       <div>⚠ 計画を作ったあとに駅・店舗・設定が変わったため、この計画は古いままです。</div>
-      ${from >= 0 ? `<button class="btn primary block" type="button" data-action="replan" data-index="${from}">🔄 今の時刻で組み直す（${esc(stationName(db.trip[from].id))}から・記録済みの店を除く）</button>` : ''}`;
+      ${from >= 0 ? `<button class="btn primary block" type="button" data-action="replan" data-index="${from}">🔄 今の時刻で組み直す（${esc(stopName(db.trip[from].id))}から・記録済みの店を除く）</button>` : ''}`;
   }
 
   const visits = p.stops.flatMap((s) => s.visits);
@@ -826,7 +894,7 @@ function renderPlan() {
           <span class="chev">${s.visits.length ? (opened ? '▾' : '▸') : ''}</span>
           <span class="num" style="--c:var(--primary)">${tripIndex >= 0 ? tripIndex + 1 : '—'}</span>
           <span class="stop-info">
-            <span class="store-name">${esc(stationName(s.stationId))} ${i === current ? '<span class="here">回っている駅</span>' : ''}</span>
+            <span class="store-name">${esc(stopName(s.stationId))} ${i === current ? '<span class="here">回っているところ</span>' : ''}</span>
             <span class="muted small">${fmtMin(s.arrive)}${i === 0 ? 'から' : '着'} ・ ${s.visits.length ? `完了 ${doneHere}/${s.visits.length}店` : '店なし'}</span>
           </span>
         </button>
@@ -856,10 +924,10 @@ function renderPlan() {
     }).join('');
 
     const back = opened && s.backLeg
-      ? `<li class="tl-walk">🚶 駅へ戻る ${fmtDur(s.backLeg.min * 60)}（${fmtDist(s.backLeg.dist)}）→ ${fmtMin(s.ready)} 駅着</li>`
+      ? `<li class="tl-walk">🚶 ${stopWord(s.stationId)}へ戻る ${fmtDur(s.backLeg.min * 60)}（${fmtDist(s.backLeg.dist)}）→ ${fmtMin(s.ready)} 着</li>`
       : '';
 
-    const ride = s.ride
+    const ride = s.ride?.mode === 'bus' || s.ride?.mode === 'walk' ? otherRideRow(s, stopName(p.stops[i + 1]?.stationId)) : s.ride
       ? `<li class="tl-ride" style="--c:${railwayColor(s.ride.railway)}">
           <div><b>${fmtMin(s.ride.dep)}発</b> ${esc(trainTypeTitle(s.ride.type))} ${esc(destLabel(s.ride.dest))}</div>
           <div class="muted small">${esc(railwayLabel(s.ride.railway))} ・ 駅で${Math.max(0, Math.round(s.ride.dep - s.ready))}分待ち → <b>${fmtMin(s.ride.arr)}着</b>${s.ride.estimated ? '（推定）' : ''}</div>
@@ -890,9 +958,9 @@ function renderRecordSummary() {
 // 出典の「データの原典」は、いま行程に入っている路線の事業者にする
 function renderAttribution() {
   const ops = new Set();
-  for (const t of db.trip) for (const r of net?.stopById.get(t.id)?.railways ?? []) ops.add(net.railwayById.get(r)?.operator);
-  const names = [...ops].filter(Boolean).map(operatorTitle);
-  document.querySelectorAll('.odpt-owner').forEach((el) => { el.textContent = names.length ? names.join('・') : '各鉄道事業者'; });
+  for (const t of db.trip) for (const r of stopById(t.id)?.railways ?? []) ops.add(net.railwayById.get(r)?.operator);
+  const names = [...new Set([...[...ops].filter(Boolean).map(operatorTitle), ...db.trip.flatMap((t) => stopById(t.id)?.operators ?? [])])];
+  document.querySelectorAll('.odpt-owner').forEach((el) => { el.textContent = names.length ? names.join('・') : '各事業者'; });
   $('#data-date').textContent = net ? `駅・路線データは ${net.generatedAt} 取得。` : '';
 }
 
@@ -1150,7 +1218,7 @@ loadNetwork()
   .then((n) => {
     net = n;
     // 以前の保存データは路線ごとの駅 ID で持っているので、駅グループの ID にそろえる
-    const toStop = (id) => net.stopById.get(id)?.id ?? id;
+    const toStop = (id) => stopById(id)?.id ?? id;
     db.trip = db.trip.map((t) => ({ id: toStop(t.id) }));
     db.searched = Object.fromEntries(Object.entries(db.searched).map(([id, r]) => [toStop(id), r]));
     for (const s of db.plan?.stops ?? []) s.stationId = toStop(s.stationId);
@@ -1161,6 +1229,18 @@ loadNetwork()
     renderStationResults();
     autoSearchMissing();
     refreshTrainInfo();
+    // バス停（2MB あまり）は駅のあとに読む。行程にバス停があるときは、計画づくり（buildPlan）が読み終わりを待つ
+    loadBus()
+      .then(() => {
+        syncBusLayer();
+        renderAll();
+        renderStationResults();
+        autoSearchMissing();
+      })
+      .catch((e) => {
+        console.warn(e);
+        toast(`バス停のデータを読み込めませんでした（${e.message}）`, 8000);
+      });
     // 画面を開いている間は運行情報を取り直す（裏に回っているときは取らない）
     setInterval(() => {
       if (document.visibilityState === 'visible') refreshTrainInfo();
