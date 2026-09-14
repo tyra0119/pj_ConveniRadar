@@ -1,6 +1,6 @@
 // シェアサイクル（ODPT 経由の GBFS）: ポートの位置・台数と、停留所の間を自転車でつなぐ時間
-import { ODPT_SOURCES } from './config.js?v=d7d61813';
-import { fetchJson, haversine } from './util.js?v=d7d61813';
+import { ODPT_SOURCES } from './config.js?v=96f7e0f6';
+import { fetchJson, haversine } from './util.js?v=96f7e0f6';
 
 export const BIKE_SYSTEMS = [
   { id: 'docomo-cycle', label: 'ドコモ・バイクシェア' },
@@ -93,6 +93,15 @@ function portsNear(point, need) {
     if (ok) out.push({ port: p, dist, bikes: st.num_bikes_available, docks: st.num_docks_available });
   }
   return out.sort((x, y) => x.dist - y.dist);
+}
+
+// 地点の近くで、借りられる／返せる事業者（エリア巡回の見積もり用）。loadBikeInfo と loadBikeStatus のあとで使う
+export function portAccess(point) {
+  if (!info || !status) return { rent: new Set(), ret: new Set() };
+  return {
+    rent: new Set(portsNear(point, 'rent').map((x) => x.port.system)),
+    ret: new Set(portsNear(point, 'return').map((x) => x.port.system)),
+  };
 }
 
 /**

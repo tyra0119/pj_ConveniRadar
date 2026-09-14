@@ -1,5 +1,5 @@
 // コンビニの検索（OpenStreetMap / Overpass）。チェーン判定と重複除去は lawson/app.js から移したもの
-import { fetchJson, haversine } from './util.js?v=d7d61813';
+import { fetchJson, haversine } from './util.js?v=96f7e0f6';
 
 // icon はチェーンの配色をもとにした簡易アイコン（公式ロゴではない）
 export const CHAINS = {
@@ -53,14 +53,15 @@ const OVERPASS_ENDPOINTS = [
 ];
 
 // 複数の駅それぞれの周り radiusM メートルを 1 回の問い合わせでまとめて探す
-export async function fetchStoresAround(points, radiusM) {
+// timeoutScale: 広い範囲（エリア巡回の半径 10km など）は時間がかかるので、待ち時間を伸ばす
+export async function fetchStoresAround(points, radiusM, { timeoutScale = 1 } = {}) {
   const parts = points.map((p) => `nwr["shop"="convenience"](around:${Math.round(radiusM)},${p.lat.toFixed(6)},${p.lng.toFixed(6)});`);
-  const query = `[out:json][timeout:25];(${parts.join('')});out center tags;`;
+  const query = `[out:json][timeout:${25 * timeoutScale}];(${parts.join('')});out center tags;`;
   const errors = [];
   for (const { url, timeout } of OVERPASS_ENDPOINTS) {
     const host = new URL(url).hostname;
     try {
-      const json = await fetchJson(url, { method: 'POST', body: new URLSearchParams({ data: query }) }, timeout);
+      const json = await fetchJson(url, { method: 'POST', body: new URLSearchParams({ data: query }) }, timeout * timeoutScale);
       // 混雑時は HTTP 200 のまま remark にエラーが入り、結果が空や途中までになることがある
       if (/runtime error|timed out|rate_limited|out of memory/i.test(json.remark ?? '')) throw new Error(json.remark);
       return dedupe(json.elements.map(toStore).filter(Boolean));

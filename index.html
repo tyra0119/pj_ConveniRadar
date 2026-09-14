@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=d7d61813">
+  <link rel="stylesheet" href="css/app.css?v=96f7e0f6">
 </head>
 <body>
   <header class="topbar">
@@ -19,11 +19,42 @@
 
   <main class="panel">
     <nav class="tabs" aria-label="画面の切り替え">
+      <button class="tab" type="button" data-tab="area" aria-selected="false"><span class="tab-icon">🧭</span>エリア<span id="tab-badge-area" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="trip" aria-selected="true"><span class="tab-icon">🚉</span>駅<span id="tab-badge-trip" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="stores" aria-selected="false"><span class="tab-icon">🏪</span>店舗<span id="tab-badge-stores" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="plan" aria-selected="false"><span class="tab-icon">🗓</span>計画<span id="tab-badge-plan" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="nav" aria-selected="false"><span class="tab-icon">🚶</span>巡回<span id="tab-badge-nav" class="tab-badge"></span></button>
     </nav>
+
+    <section class="card" data-panel="area">
+      <h2><span class="step">🧭</span>エリアで自動で回る</h2>
+      <p class="muted small">中心・半径・終了時刻を決めると、範囲内の駅・バス停から、終了時刻までに回れる店が多くなる順番を選び、「駅」タブの行程と「巡回」の計画を作ります。</p>
+      <div class="row">
+        <button id="btn-area-locate" class="btn primary" type="button">📍 現在地を中心に</button>
+        <button id="btn-area-mapcenter" class="btn" type="button">🗺 地図の中心を中心に</button>
+      </div>
+      <p id="area-center" class="muted small"></p>
+      <label class="field">
+        <span>半径 <output id="area-radius-out">3</output> km</span>
+        <input id="area-radius" type="range" min="1" max="10" step="1" value="3">
+      </label>
+      <div class="grid2">
+        <label class="field"><span>日付</span><input id="area-date" type="date"></label>
+        <label class="field"><span>開始時刻（中心にいる時刻）</span><input id="area-start" type="time"></label>
+        <label class="field"><span>終了時刻（必須）</span><input id="area-deadline" type="time"></label>
+      </div>
+      <div class="field">
+        <span>使う移動手段（徒歩は常に使います）</span>
+        <div class="modes">
+          <label><input type="checkbox" name="mode" value="rail"> 🚃 電車</label>
+          <label><input type="checkbox" name="mode" value="bus"> 🚌 バス</label>
+          <label><input type="checkbox" name="mode" value="bike"> 🚲 シェアサイクル</label>
+        </div>
+      </div>
+      <p class="muted small">チェーン・駅から歩く範囲は「店舗」タブ、滞在時間・乗るまでの余裕は「計画」タブの設定を使います。半径が大きいと、店舗の検索に 1 分ほどかかることがあります。</p>
+      <button id="btn-area" class="btn primary block" type="button">🧭 回る駅と店を自動で決める</button>
+      <div id="area-summary"></div>
+    </section>
 
     <section class="card active" data-panel="trip">
       <h2><span class="step">1</span>回る駅 <span id="trip-count" class="badge"></span></h2>
@@ -159,6 +190,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=d7d61813"></script>
+  <script type="module" src="js/app.js?v=96f7e0f6"></script>
 </body>
 </html>
