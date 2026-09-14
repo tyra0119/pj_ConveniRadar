@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=bf41d249';
-import { busData, loadBus } from './bus.js?v=bf41d249';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=bf41d249';
-import { planAreaRoute } from './area.js?v=bf41d249';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=bf41d249';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=bf41d249';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=bf41d249';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=bf41d249';
-import { $, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=bf41d249';
+import { ODPT_SOURCES } from './config.js?v=72ab7fe1';
+import { busData, loadBus } from './bus.js?v=72ab7fe1';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=72ab7fe1';
+import { planAreaRoute } from './area.js?v=72ab7fe1';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=72ab7fe1';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=72ab7fe1';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=72ab7fe1';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=72ab7fe1';
+import { $, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=72ab7fe1';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -25,6 +25,7 @@ const DEFAULTS = {
   excluded: {}, // { storeId: true }
   records: {}, // { くじ名: { storeId: { status, note, at } } }
   plan: null,
+  tripMode: 'station', // 行程をどちらの探し方で作ったか（area / station）。地図に出すかを決める
   ui: { tab: 'stores', mode: 'station', openGroups: {} }, // 表示中のタブ、探し方（area / station）、店舗一覧で開いている駅 { 駅ID: true/false }
   area: { center: null, source: null, radiusKm: 3, last: null }, // エリア検索の中心 { lat, lng, label }、中心の決め方（gps / map）、半径、直近の結果
 };
@@ -110,6 +111,7 @@ function addStations(ids) {
     added++;
   }
   if (!added) return toast('同じ駅が続くため追加しませんでした');
+  db.tripMode = 'station';
   markPlanStale();
   save();
   renderAll();
@@ -123,6 +125,7 @@ function moveTrip(i, delta) {
   const k = i + delta;
   if (k < 0 || k >= db.trip.length) return;
   [db.trip[i], db.trip[k]] = [db.trip[k], db.trip[i]];
+  db.tripMode = 'station';
   markPlanStale();
   save();
   renderAll();
@@ -159,6 +162,7 @@ function fillBetween(i, k) {
   const f =betweenStops(commonRailways(net, db.trip[i].id, db.trip[i + 1].id))[k];
   if (!f) return;
   db.trip.splice(i + 1, 0, ...f.stops.map((id) => ({ id })));
+  db.tripMode = 'station';
   markPlanStale();
   save();
   renderAll();
@@ -170,6 +174,7 @@ function fillBetween(i, k) {
 function removeTrip(i) {
   if (blockedWhileSearching()) return;
   db.trip.splice(i, 1);
+  db.tripMode = 'station';
   markPlanStale();
   save();
   renderAll();
@@ -565,6 +570,17 @@ function storePopup(s) {
   return div;
 }
 
+// 地図に出す行程（駅のピン・範囲の円・店・ルート）は、いまの探し方で作った行程のときだけ。
+// 駅検索で駅を指定したあとエリア検索に切り替えると、駅検索の情報が地図に残っていた（2026-09-14）。
+// 巡回タブでは、どちらで作った計画でも回っている最中なので出す
+function syncMapLayers() {
+  const show = !isAreaMode() || db.tripMode === 'area' || db.ui.tab === 'nav';
+  for (const layer of [layers.trip, layers.stores, layers.route]) {
+    if (show && !map.hasLayer(layer)) layer.addTo(map);
+    if (!show && map.hasLayer(layer)) map.removeLayer(layer);
+  }
+}
+
 function tripBounds() {
   const pts = db.trip.map((t) => stopById(t.id)).filter(Boolean).map((s) => [s.lat, s.lng]);
   return pts.length ? L.latLngBounds(pts) : null;
@@ -594,6 +610,7 @@ function renderAll() {
   renderAttribution();
   renderReport();
   renderArea();
+  syncMapLayers();
 }
 
 function renderTrip() {
@@ -755,9 +772,19 @@ function renderStores() {
   const pending = new Set(unsearchedStations().map((s) => s.id));
   renderStoreHint(pending);
 
+  // 店のマーカーは一覧より先に作る。地図に出すかは syncMapLayers が決める
+  // （一覧を出さないときに先に抜けていて、エリア検索中に巡回タブを開くと店が地図に出なかった）
+  for (const s of all) {
+    const done = !!records[s.id]?.status;
+    const marker = L.marker([s.lat, s.lng], {
+      icon: storeIcon(s.chain, done ? '✓' : planNo.get(s.id), { done, faded: !!db.excluded[s.id] }),
+    }).bindPopup(() => storePopup(s)).addTo(layers.stores);
+    storeMarkers.set(s.id, marker);
+  }
+
   const list = $('#store-list');
   // エリア検索でまだ選んでいないときは、駅検索で作った行程の店を出さない
-  if (!db.trip.length || !db.searchedAt || (isAreaMode() && !db.area.last)) {
+  if (!db.trip.length || !db.searchedAt || (isAreaMode() && db.tripMode !== 'area')) {
     list.innerHTML = `<li class="empty">${isAreaMode() ? 'エリア検索では、計画を作ると、選んだ駅・バス停ごとの店がここに出ます'
       : db.trip.length ? '店舗を探しています…' : '「探す」タブで回る駅を追加すると、近くの店がここに出ます'}</li>`;
     return;
@@ -799,13 +826,6 @@ function renderStores() {
     }).join('');
   }).join('');
 
-  for (const s of all) {
-    const done = !!records[s.id]?.status;
-    const marker = L.marker([s.lat, s.lng], {
-      icon: storeIcon(s.chain, done ? '✓' : planNo.get(s.id), { done, faded: !!db.excluded[s.id] }),
-    }).bindPopup(() => storePopup(s)).addTo(layers.stores);
-    storeMarkers.set(s.id, marker);
-  }
 }
 
 // 計画の駅が、いまの行程の何番目か。計画のあとに駅を足したり並べ替えたりすると
@@ -1117,6 +1137,7 @@ $('#trip-list').addEventListener('click', (e) => {
 $('#btn-clear-trip').addEventListener('click', () => {
   if (!db.trip.length || !confirm('行程の駅をすべて外しますか？（記録は消えません）')) return;
   db.trip = [];
+  db.tripMode = 'station';
   db.plan = null;
   save();
   renderAll();
@@ -1427,6 +1448,7 @@ async function computeAreaInner(btn) {
 
   // 選んだ順番を行程に入れる。店舗は範囲全体で探し済みなので、選んだ停留所は検索済みにする
   db.trip = result.route.map((r) => ({ id: r.base.id }));
+  db.tripMode = 'area';
   db.stores = found;
   db.searchedAt = Date.now();
   db.searched = Object.fromEntries(db.trip.map((t) => [t.id, walkR]));
@@ -1487,6 +1509,9 @@ $('#area-radius').addEventListener('input', (e) => {
   save();
   renderArea();
   renderPlan();
+  // 範囲の円がちょうど収まるように、地図も拡大・縮小する
+  const c = db.area.center;
+  if (c) map.fitBounds(L.latLng(c.lat, c.lng).toBounds(db.area.radiusKm * 2000), { animate: false });
 });
 
 // ===== 探し方（エリア検索／駅検索） =====
@@ -1524,6 +1549,7 @@ function setTab(name) {
   save();
   document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.panel > [data-panel]').forEach((s) => s.classList.toggle('active', s.dataset.panel === tab));
+  syncMapLayers();
   // 切り替えた画面の先頭が見えるように戻す（PC はパネルだけがスクロールし、スマホは画面全体がスクロールする）
   const panel = $('.panel');
   if (getComputedStyle(panel).overflowY === 'auto') {

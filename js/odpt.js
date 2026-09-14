@@ -1,6 +1,6 @@
 // ODPT の問い合わせと、時刻表から「乗る列車」を決める処理
-import { DATA_V, ODPT_SOURCES } from './config.js?v=bf41d249';
-import { fetchJson, fmtMin, haversine, parseHHMM } from './util.js?v=bf41d249';
+import { DATA_V, ODPT_SOURCES } from './config.js?v=72ab7fe1';
+import { fetchJson, fmtMin, haversine, parseHHMM } from './util.js?v=72ab7fe1';
 
 const SERVICE_DAY_START = 4 * 60; // 鉄道の 1 日は 4:00 から。0:10 発の終電は 24:10 として数える
 const RIDE_SLOW = 250; // 所要時間の上限を見積もる速さ（m/分 = 15km/h）。これより遅い一致は別の列車とみなす
