@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=96f7e0f6';
-import { busData, loadBus } from './bus.js?v=96f7e0f6';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=96f7e0f6';
-import { planAreaRoute } from './area.js?v=96f7e0f6';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=96f7e0f6';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=96f7e0f6';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=96f7e0f6';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=96f7e0f6';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=96f7e0f6';
+import { ODPT_SOURCES } from './config.js?v=7add0f74';
+import { busData, loadBus } from './bus.js?v=7add0f74';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=7add0f74';
+import { planAreaRoute } from './area.js?v=7add0f74';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=7add0f74';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=7add0f74';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=7add0f74';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=7add0f74';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=7add0f74';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -25,7 +25,7 @@ const DEFAULTS = {
   excluded: {}, // { storeId: true }
   records: {}, // { くじ名: { storeId: { status, note, at } } }
   plan: null,
-  ui: { tab: 'trip', openGroups: {} }, // 表示中のタブ、店舗一覧で開いている駅 { 駅ID: true/false }
+  ui: { tab: 'search', mode: 'station', openGroups: {} }, // 表示中のタブ、探し方（area / station）、店舗一覧で開いている駅 { 駅ID: true/false }
   area: { center: null, radiusKm: 3, last: null }, // エリア巡回の中心 { lat, lng, label }、半径、直近の結果
 };
 
@@ -79,6 +79,21 @@ function stopById(id) {
 }
 const stopName = (id) => stopById(id)?.name ?? odptStationName(id);
 const stopWord = (id) => (String(id).startsWith('bus:') ? 'バス停' : '駅');
+
+// 探し方は 2 つ（2026-09-14 利用者の指示で整理。似た設定があちこちにあって使いにくかった）
+//   エリア検索: 中心・半径・移動手段から、回る駅・バス停と店を自動で選ぶ
+//   駅検索: 回る駅を自分で並べる。駅と駅の間は電車・バス・徒歩のうち一番早い手段
+const AREA_WALK_RADIUS = 500; // エリア検索で、選んだ駅・バス停から歩いて回る範囲（m）
+const AREA_DEFAULT_MINUTES = 180; // エリア検索で終了時刻が空欄のときの長さ（分）
+const STATION_MODES = { rail: true, bus: true, bike: false }; // 駅検索の移動手段
+const isAreaMode = () => db.ui.mode === 'area';
+const walkRadius = () => (isAreaMode() ? AREA_WALK_RADIUS : db.settings.radius);
+
+function renderSearchBadge() {
+  $('#tab-badge-search').textContent = isAreaMode()
+    ? (db.area.center ? `エリア${db.area.radiusKm}km` : 'エリア')
+    : (db.trip.length ? `${db.trip.length}駅` : '駅');
+}
 
 // ===== 操作 =====
 function markPlanStale() {
@@ -167,7 +182,7 @@ function assignStores() {
   if (!net) return groups;
   const first = new Map();
   db.trip.forEach((t, i) => { if (!first.has(t.id)) first.set(t.id, i); });
-  const limit = db.settings.radius * 1.1;
+  const limit = walkRadius() * 1.1;
   for (const s of db.stores) {
     if (!db.settings.chains.includes(s.chain)) continue;
     let best = -1;
@@ -205,7 +220,7 @@ function blockedWhileSearching() {
 function unsearchedStations() {
   if (!net) return [];
   return [...new Set(db.trip.map((t) => t.id))]
-    .filter((id) => (db.searched[id] ?? 0) < db.settings.radius)
+    .filter((id) => (db.searched[id] ?? 0) < walkRadius())
     .map((id) => stopById(id))
     .filter(Boolean);
 }
@@ -221,7 +236,7 @@ async function searchStores({ onlyMissing = false } = {}) {
 
   // 検索中に半径を動かされても、実際に探した半径で「検索済み」を記録する
   // （終わった時点の半径で記録すると、400m で探している間に 800m へ広げたとき、広げた分が探されないままになる）
-  const radius = db.settings.radius;
+  const radius = walkRadius();
   setSearching(true);
   let found;
   try {
@@ -253,7 +268,8 @@ async function searchStores({ onlyMissing = false } = {}) {
 // 検索ボタンの押し忘れで、足した駅が「0店」に見えていた（2026-09-14 池袋→和光市で発覚）
 let autoSearching = null;
 function autoSearchMissing() {
-  if (!db.searchedAt || !net || autoSearching || !unsearchedStations().length) return;
+  // 駅検索では、駅を足したら 1 回目から自動で探す（「店舗を検索」ボタンは無くした）。エリア検索は計画を作るときにまとめて探す
+  if (isAreaMode() || !net || autoSearching || !db.trip.length || !unsearchedStations().length) return;
   autoSearching = searchStores({ onlyMissing: true })
     .then(() => true, (e) => {
       console.error(e);
@@ -336,8 +352,6 @@ async function computePlan(fromIndex = 0, useNow = false) {
   if (useNow) {
     $('#plan-date').value = todayISO();
     $('#plan-start').value = nowHHMM();
-    $('#area-date').value = $('#plan-date').value;
-    $('#area-start').value = $('#plan-start').value;
   }
   const date = $('#plan-date').value || todayISO();
   const startTime = $('#plan-start').value || nowHHMM();
@@ -348,6 +362,8 @@ async function computePlan(fromIndex = 0, useNow = false) {
   if (deadline != null && deadline <= startMin) {
     throw new Error(`終了時刻 ${db.settings.deadline} が、始める時刻 ${startTime} より前です。終了時刻を直すか「なし」にしてください`);
   }
+  // エリア検索で終了時刻が空欄のときは、回る駅を選んだときの終了（開始から 3 時間）を、組み直しでも使う
+  if (deadline == null && isAreaMode() && db.area.autoEnd > startMin) deadline = db.area.autoEnd;
 
   // 店舗を探していない駅があれば、先に探す（探さずに計画すると、その駅は店なしになる）
   if (autoSearching) await autoSearching;
@@ -365,7 +381,7 @@ async function computePlan(fromIndex = 0, useNow = false) {
     transfer: db.settings.transfer,
     day: await dayProfile(date),
     deadline,
-    modes: { ...DEFAULTS.settings.modes, ...db.settings.modes },
+    modes: isAreaMode() ? { ...DEFAULTS.settings.modes, ...db.settings.modes } : STATION_MODES,
   });
   db.plan = { ...plan, fromIndex, date, startTime, stale: false };
   planOpen.clear();
@@ -561,8 +577,7 @@ function renderAll() {
 
 function renderTrip() {
   layers.trip.clearLayers();
-  $('#trip-count').textContent = db.trip.length ? `${db.trip.length}駅` : '';
-  $('#tab-badge-trip').textContent = db.trip.length ? `${db.trip.length}駅` : '';
+  renderSearchBadge();
   const list = $('#trip-list');
   if (!db.trip.length) {
     list.innerHTML = '<li class="empty">まだ駅がありません</li>';
@@ -608,7 +623,7 @@ function renderTrip() {
     const st = stopById(id);
     if (!st) continue;
     L.circle([st.lat, st.lng], {
-      radius: db.settings.radius, color: '#0b7285', weight: 1, fillOpacity: 0.05, interactive: false,
+      radius: walkRadius(), color: '#0b7285', weight: 1, fillOpacity: 0.05, interactive: false,
     }).addTo(layers.trip);
     L.marker([st.lat, st.lng], { icon: pinIcon(st.kind === 'bus' ? BUS_COLOR : '#0b7285', nums.join('・')), zIndexOffset: 1000 })
       .bindTooltip(st.name, { direction: 'top', offset: [0, -14] })
@@ -681,10 +696,10 @@ function renderStoreHint(pending) {
   const hint = $('#store-hint');
   const stopIds = [...new Set(db.trip.map((t) => t.id))];
   const widened = [...pending].some((id) => (db.searched[id] ?? 0) > 0); // 前に探した駅で、半径だけ足りない
-  const narrowed = stopIds.some((id) => (db.searched[id] ?? 0) > db.settings.radius);
+  const narrowed = stopIds.some((id) => (db.searched[id] ?? 0) > walkRadius());
   let html = '';
   let quiet = false;
-  if (!db.searchedAt) {
+  if (isAreaMode() || !db.trip.length) {
     html = '';
   } else if (pending.size && autoSearching) {
     html = `🔍 ${widened ? '広げた半径' : '足した駅'}の分の店舗を検索しています…`;
@@ -720,8 +735,10 @@ function renderStores() {
   renderStoreHint(pending);
 
   const list = $('#store-list');
-  if (!db.trip.length || !db.searchedAt) {
-    list.innerHTML = `<li class="empty">${db.trip.length ? '「店舗を検索」を押してください' : '回る駅を追加してから検索してください'}</li>`;
+  // エリア検索でまだ選んでいないときは、駅検索で作った行程の店を出さない
+  if (!db.trip.length || !db.searchedAt || (isAreaMode() && !db.area.last)) {
+    list.innerHTML = `<li class="empty">${isAreaMode() ? 'エリア検索では、計画を作ると、選んだ駅・バス停ごとの店がここに出ます'
+      : db.trip.length ? '店舗を探しています…' : '「探す」タブで回る駅を追加すると、近くの店がここに出ます'}</li>`;
     return;
   }
 
@@ -1039,9 +1056,7 @@ function syncControls() {
   $('#campaign').value = s.campaign;
   $('#plan-date').value = todayISO();
   $('#plan-start').value = nowHHMM();
-  $('#area-date').value = $('#plan-date').value;
-  $('#area-start').value = $('#plan-start').value;
-  $('#area-deadline').value = s.deadline;
+  syncModeSwitch();
 }
 
 // ===== イベント =====
@@ -1115,8 +1130,11 @@ document.querySelectorAll('input[name=chain]').forEach((el) => el.addEventListen
   renderAll();
 }));
 
-$('#btn-search').addEventListener('click', (e) => withBusy(e.currentTarget, '検索中…', searchStores));
-$('#btn-plan').addEventListener('click', (e) => withBusy(e.currentTarget, '時刻表を確認中…', () => computePlan(0, false)));
+// 「計画を作る」は 1 つ。エリア検索なら回る駅と店を選んでから、駅検索なら行程のまま計画を作る
+$('#btn-plan').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  withBusy(btn, isAreaMode() ? '準備中…' : '時刻表を確認中…', () => (isAreaMode() ? computeArea(btn) : computePlan(0, false)));
+});
 
 $('#campaign').addEventListener('change', (e) => {
   db.settings.campaign = e.target.value;
@@ -1141,38 +1159,23 @@ for (const id of ['#plan-date', '#plan-start']) {
   });
 }
 
-// 使う移動手段（電車・バス・シェアサイクル）。徒歩は常に使う
-// 計画タブとエリアタブの 2 か所にあるので、押した方の値を保存して両方をそろえる
+// 使う移動手段（電車・バス・シェアサイクル）。エリア検索で使う。徒歩は常に使う
 document.querySelectorAll('input[name=mode]').forEach((el) => el.addEventListener('change', (e) => {
   db.settings.modes = { ...DEFAULTS.settings.modes, ...db.settings.modes, [e.target.value]: e.target.checked };
-  document.querySelectorAll(`input[name=mode][value=${e.target.value}]`).forEach((c) => { c.checked = e.target.checked; });
   markPlanStale();
   save();
   renderPlan();
 }));
 
-// エリアタブの日付・開始時刻は、計画タブと同じ値
-for (const [areaId, planId] of [['#area-date', '#plan-date'], ['#area-start', '#plan-start']]) {
-  $(areaId).addEventListener('change', () => {
-    $(planId).value = $(areaId).value;
-    markPlanStale();
-    save();
-    renderPlan();
-  });
-  $(planId).addEventListener('change', () => { $(areaId).value = $(planId).value; });
-}
-
 function setDeadline(value) {
   db.settings.deadline = value;
   $('#plan-deadline').value = value;
-  $('#area-deadline').value = value;
   markPlanStale();
   save();
   renderPlan();
 }
 $('#plan-deadline').addEventListener('change', (e) => setDeadline(e.target.value));
 $('#btn-clear-deadline').addEventListener('click', () => setDeadline(''));
-$('#area-deadline').addEventListener('change', (e) => setDeadline(e.target.value));
 
 $('#skip-recorded').addEventListener('change', (e) => {
   db.settings.skipRecorded = e.target.checked;
@@ -1305,8 +1308,8 @@ function renderArea() {
   $('#area-radius').value = a.radiusKm;
   $('#area-radius-out').textContent = a.radiusKm;
   $('#area-center').textContent = a.center ? `中心：${a.center.label}` : '中心：未設定（📍 現在地 か、地図を動かして 🗺 地図の中心 を押してください）';
-  $('#tab-badge-area').textContent = a.center ? `${a.radiusKm}km` : '';
-  if (a.center) {
+  renderSearchBadge();
+  if (a.center && isAreaMode()) {
     L.circle([a.center.lat, a.center.lng], {
       radius: a.radiusKm * 1000, color: AREA_COLOR, weight: 2, dashArray: '6 6', fillOpacity: 0.03, interactive: false,
     }).addTo(layers.area);
@@ -1315,7 +1318,8 @@ function renderArea() {
       .addTo(layers.area);
   }
   const l = a.last;
-  $('#area-summary').innerHTML = !l ? '' : `
+  $('#area-summary').innerHTML = !l || !isAreaMode() ? '' : `
+    ${l.autoEnd ? `<p class="small">⏰ 終了時刻が空欄なので、開始から 3 時間（${fmtMin(l.autoEnd)} まで）で選びました</p>` : ''}
     <div class="summary">
       <div><span class="big">${l.chosen}</span><span class="label">駅・バス停</span></div>
       <div><span class="big">${l.estimate}</span><span class="label">店（見積もり）</span></div>
@@ -1327,9 +1331,10 @@ function renderArea() {
 
 function setAreaCenter(center) {
   db.area.center = center;
-  db.area.last = null;
+  markPlanStale();
   save();
   renderArea();
+  renderPlan();
   map.fitBounds(L.latLng(center.lat, center.lng).toBounds(db.area.radiusKm * 2000));
 }
 
@@ -1338,13 +1343,16 @@ async function computeArea(btn) {
   if (!net) throw new Error('駅データを読み込み中です。少し待ってください');
   const area = db.area;
   if (!area.center) throw new Error('先に中心を決めてください（📍 現在地 か 🗺 地図の中心）');
-  if (!db.settings.deadline) throw new Error('終了時刻を決めてください。エリア巡回は、終了時刻までに回れる店が多くなる順番を選びます');
-  const startTime = $('#area-start').value || nowHHMM();
+  const startTime = $('#plan-start').value || nowHHMM();
   let startMin = parseHHMM(startTime);
   if (startMin < 4 * 60) startMin += 24 * 60;
-  let deadline = parseHHMM(db.settings.deadline);
-  if (deadline < 4 * 60) deadline += 24 * 60;
-  if (deadline <= startMin) throw new Error(`終了時刻 ${db.settings.deadline} が、開始時刻 ${startTime} より前です`);
+  let deadline = db.settings.deadline ? parseHHMM(db.settings.deadline) : null;
+  if (deadline != null && deadline < 4 * 60) deadline += 24 * 60;
+  if (deadline != null && deadline <= startMin) throw new Error(`終了時刻 ${db.settings.deadline} が、開始時刻 ${startTime} より前です`);
+  // 終了時刻が空欄なら 3 時間。時間の上限が無いと、回る店を選べない（範囲内の店を全部回る計画になってしまう）
+  const autoEnd = deadline == null ? startMin + AREA_DEFAULT_MINUTES : null;
+  if (autoEnd != null) deadline = autoEnd;
+  area.autoEnd = autoEnd;
   const modes = { ...DEFAULTS.settings.modes, ...db.settings.modes };
 
   step('データを読み込み中…');
@@ -1352,7 +1360,7 @@ async function computeArea(btn) {
   if (modes.bike) await Promise.all([loadBikeInfo(), loadBikeStatus()]);
 
   step('範囲内の店舗を検索中…');
-  const walkR = db.settings.radius;
+  const walkR = AREA_WALK_RADIUS;
   setSearching(true);
   let found;
   try {
@@ -1394,15 +1402,19 @@ async function computeArea(btn) {
     estimateEnd: result.endMin,
     walkToStart: result.walkToStart,
     startName: result.start.name,
+    autoEnd,
   };
   save();
   renderAll();
 
   // 実際の時刻表で計画を作る。最初の停留所にいる時刻は、中心からの徒歩を足した時刻
   step('時刻表で計画を作っています…');
-  $('#plan-date').value = $('#area-date').value || todayISO();
   $('#plan-start').value = toHHMM(startMin + result.walkToStart);
-  await computePlan(0, false);
+  try {
+    await computePlan(0, false);
+  } finally {
+    $('#plan-start').value = startTime; // 入力欄は利用者が入れた開始時刻に戻す
+  }
 }
 
 $('#btn-area-locate').addEventListener('click', (e) => withBusy(e.currentTarget, '取得中…', async () => {
@@ -1414,23 +1426,45 @@ $('#btn-area-mapcenter').addEventListener('click', () => {
   setAreaCenter({ lat: c.lat, lng: c.lng, label: '地図の中心' });
 });
 
+// 計画のあとに中心・半径を変えても、選んだ結果は消さずに「計画が古い」にする（回っている最中に店の一覧が消えないように）
 $('#area-radius').addEventListener('input', (e) => {
   db.area.radiusKm = Number(e.target.value);
-  db.area.last = null;
+  markPlanStale();
   save();
   renderArea();
+  renderPlan();
 });
 
-$('#btn-area').addEventListener('click', (e) => {
-  const btn = e.currentTarget;
-  withBusy(btn, '準備中…', () => computeArea(btn));
+// ===== 探し方（エリア検索／駅検索） =====
+function syncModeSwitch() {
+  const mode = isAreaMode() ? 'area' : 'station';
+  document.querySelectorAll('.mode-btn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  document.querySelectorAll('[data-mode-panel]').forEach((p) => p.classList.toggle('active', p.dataset.modePanel === mode));
+  $('#plan-start-label').textContent = mode === 'area' ? '開始時刻（中心にいる時刻）' : '開始時刻（最初の駅にいる時刻）';
+  $('#btn-plan').textContent = mode === 'area' ? '🧭 回る駅と店を決めて計画を作る' : '🗓 時刻表で計画を作る';
+}
+
+function setMode(mode) {
+  if (blockedWhileSearching()) return;
+  db.ui.mode = mode === 'area' ? 'area' : 'station';
+  save();
+  syncModeSwitch();
+  renderAll();
+  if (isAreaMode() && db.area.center) map.fitBounds(L.latLng(db.area.center.lat, db.area.center.lng).toBounds(db.area.radiusKm * 2000));
+  else fitTrip();
+  autoSearchMissing();
+}
+
+$('.mode-switch').addEventListener('click', (e) => {
+  const btn = e.target.closest('.mode-btn');
+  if (btn) setMode(btn.dataset.mode);
 });
 
 // ===== タブ =====
-// 4 枚のカードを縦に並べると、駅が多いときに長くなりすぎて操作しにくい（2026-09-14 利用者の指摘）ので 1 枚ずつ出す
-const TABS = ['area', 'trip', 'stores', 'plan', 'nav'];
+// カードを縦に並べると、駅が多いときに長くなりすぎて操作しにくい（2026-09-14 利用者の指摘）ので 1 枚ずつ出す
+const TABS = ['search', 'stores', 'plan', 'nav'];
 function setTab(name) {
-  const tab = TABS.includes(name) ? name : 'trip';
+  const tab = TABS.includes(name) ? name : 'search';
   db.ui.tab = tab;
   save();
   document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
@@ -1457,6 +1491,7 @@ document.addEventListener('click', (e) => {
 
 // ===== 起動 =====
 document.querySelectorAll('.chain-icon[data-chain]').forEach((el) => { el.innerHTML = CHAINS[el.dataset.chain].icon; });
+if (db.ui.tab === 'area') db.ui.mode = 'area'; // 以前の「エリア」タブを開いていた保存データ
 syncControls();
 renderAll();
 setTab(db.ui.tab);

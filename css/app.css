@@ -452,8 +452,8 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
   top: 0;
   z-index: 900;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 3px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
   padding: 4px;
   background: var(--card);
   border-radius: var(--radius);
@@ -478,6 +478,14 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
 .tab-badge { min-height: 1.3em; font-size: 11px; font-weight: 400; }
 .tab[aria-selected="true"] { color: #fff; background: var(--primary); }
 .panel > [data-panel]:not(.active) { display: none; }
+
+/* 探し方（エリア検索／駅検索）の切り替え */
+.mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--bg); border-radius: 10px; }
+.mode-btn { padding: 8px 4px; font: inherit; font-weight: 700; color: var(--muted); cursor: pointer; background: none; border: none; border-radius: 8px; }
+.mode-btn[aria-pressed="true"] { color: #fff; background: var(--primary); }
+[data-mode-panel]:not(.active) { display: none; }
+.row.wrap { flex-wrap: wrap; }
+.subhead { margin: 6px 0 0; font-size: 14px; }
 .card-body { display: flex; flex-direction: column; gap: 10px; }
 
 /* 駅ごとの折りたたみ（店舗一覧・巡回） */

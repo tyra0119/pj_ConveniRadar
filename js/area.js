@@ -1,9 +1,9 @@
 // エリア巡回モード: 中心と半径の中から、終了時刻までに回れる店が多くなるように、拠点（駅・バス停）と順番を選ぶ。
 // ここで使う移動時間は見積もり。選んだ順番を行程に入れたあと、実際の時刻表での計画は plan.js の buildPlan が作る
-import { portAccess } from './bike.js?v=96f7e0f6';
-import { commonBusPatterns } from './bus.js?v=96f7e0f6';
-import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, commonRailways } from './plan.js?v=96f7e0f6';
-import { haversine } from './util.js?v=96f7e0f6';
+import { portAccess } from './bike.js?v=7add0f74';
+import { commonBusPatterns } from './bus.js?v=7add0f74';
+import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, commonRailways } from './plan.js?v=7add0f74';
+import { haversine } from './util.js?v=7add0f74';
 
 const RAIL_SPEED = 550; // 駅間の見積もりの速さ（m/分 ≈ 33km/h、停車込み）
 const RAIL_WAIT = 5; // 列車を待つ時間の見積もり（分）

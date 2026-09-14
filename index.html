@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=96f7e0f6">
+  <link rel="stylesheet" href="css/app.css?v=7add0f74">
 </head>
 <body>
   <header class="topbar">
@@ -19,72 +19,73 @@
 
   <main class="panel">
     <nav class="tabs" aria-label="画面の切り替え">
-      <button class="tab" type="button" data-tab="area" aria-selected="false"><span class="tab-icon">🧭</span>エリア<span id="tab-badge-area" class="tab-badge"></span></button>
-      <button class="tab" type="button" data-tab="trip" aria-selected="true"><span class="tab-icon">🚉</span>駅<span id="tab-badge-trip" class="tab-badge"></span></button>
+      <button class="tab" type="button" data-tab="search" aria-selected="true"><span class="tab-icon">🔍</span>探す<span id="tab-badge-search" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="stores" aria-selected="false"><span class="tab-icon">🏪</span>店舗<span id="tab-badge-stores" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="plan" aria-selected="false"><span class="tab-icon">🗓</span>計画<span id="tab-badge-plan" class="tab-badge"></span></button>
       <button class="tab" type="button" data-tab="nav" aria-selected="false"><span class="tab-icon">🚶</span>巡回<span id="tab-badge-nav" class="tab-badge"></span></button>
     </nav>
 
-    <section class="card" data-panel="area">
-      <h2><span class="step">🧭</span>エリアで自動で回る</h2>
-      <p class="muted small">中心・半径・終了時刻を決めると、範囲内の駅・バス停から、終了時刻までに回れる店が多くなる順番を選び、「駅」タブの行程と「巡回」の計画を作ります。</p>
-      <div class="row">
-        <button id="btn-area-locate" class="btn primary" type="button">📍 現在地を中心に</button>
-        <button id="btn-area-mapcenter" class="btn" type="button">🗺 地図の中心を中心に</button>
+    <section class="card active" data-panel="search">
+      <h2><span class="step">1</span>どこを回るか</h2>
+      <div class="mode-switch" role="group" aria-label="探し方">
+        <button class="mode-btn" type="button" data-mode="area" aria-pressed="false">🧭 エリア検索</button>
+        <button class="mode-btn" type="button" data-mode="station" aria-pressed="true">🚉 駅検索</button>
       </div>
-      <p id="area-center" class="muted small"></p>
-      <label class="field">
-        <span>半径 <output id="area-radius-out">3</output> km</span>
-        <input id="area-radius" type="range" min="1" max="10" step="1" value="3">
-      </label>
-      <div class="grid2">
-        <label class="field"><span>日付</span><input id="area-date" type="date"></label>
-        <label class="field"><span>開始時刻（中心にいる時刻）</span><input id="area-start" type="time"></label>
-        <label class="field"><span>終了時刻（必須）</span><input id="area-deadline" type="time"></label>
-      </div>
-      <div class="field">
-        <span>使う移動手段（徒歩は常に使います）</span>
-        <div class="modes">
-          <label><input type="checkbox" name="mode" value="rail"> 🚃 電車</label>
-          <label><input type="checkbox" name="mode" value="bus"> 🚌 バス</label>
-          <label><input type="checkbox" name="mode" value="bike"> 🚲 シェアサイクル</label>
+
+      <!-- エリア検索: 中心と半径の中から、回る駅・バス停と店を自動で選ぶ -->
+      <div class="card-body" data-mode-panel="area">
+        <p class="muted small">中心と半径の中から、回る駅・バス停と店を自動で選びます。</p>
+        <div class="row wrap">
+          <button id="btn-area-locate" class="btn primary" type="button">📍 現在地を中心に</button>
+          <button id="btn-area-mapcenter" class="btn" type="button">🗺 地図の中心を中心に</button>
+        </div>
+        <p id="area-center" class="muted small"></p>
+        <label class="field">
+          <span>半径 <output id="area-radius-out">3</output> km</span>
+          <input id="area-radius" type="range" min="1" max="10" step="1" value="3">
+        </label>
+        <div class="field">
+          <span>使う移動手段（徒歩は常に使います）</span>
+          <div class="modes">
+            <label><input type="checkbox" name="mode" value="rail"> 🚃 電車</label>
+            <label><input type="checkbox" name="mode" value="bus"> 🚌 バス</label>
+            <label><input type="checkbox" name="mode" value="bike"> 🚲 シェアサイクル</label>
+          </div>
+          <span class="muted small">シェアサイクルはポートの台数を計画を作るときに取得します（データが大きく、少し時間がかかります）。電車とバスを外すと自転車だけで回れます。</span>
         </div>
       </div>
-      <p class="muted small">チェーン・駅から歩く範囲は「店舗」タブ、滞在時間・乗るまでの余裕は「計画」タブの設定を使います。半径が大きいと、店舗の検索に 1 分ほどかかることがあります。</p>
-      <button id="btn-area" class="btn primary block" type="button">🧭 回る駅と店を自動で決める</button>
-      <div id="area-summary"></div>
-    </section>
 
-    <section class="card active" data-panel="trip">
-      <h2><span class="step">1</span>回る駅 <span id="trip-count" class="badge"></span></h2>
-      <input id="station-search" type="search" placeholder="駅名・バス停名で検索して追加" autocomplete="off">
-      <ul id="station-results" class="results"></ul>
+      <!-- 駅検索: 回る駅を自分で並べる -->
+      <div class="card-body" data-mode-panel="station">
+        <input id="station-search" type="search" placeholder="駅名・バス停名で検索して追加" autocomplete="off">
+        <ul id="station-results" class="results"></ul>
 
-      <details class="range">
-        <summary>路線を選んで区間の駅をまとめて追加</summary>
-        <select id="rw-select"><option value="">読み込み中…</option></select>
-        <div class="grid2">
-          <label class="field"><span>乗る駅</span><select id="rw-from"></select></label>
-          <label class="field"><span>降りる駅</span><select id="rw-to"></select></label>
-        </div>
-        <button id="btn-add-range" class="btn block" type="button" disabled>間の駅をまとめて追加</button>
-      </details>
+        <details class="range">
+          <summary>路線を選んで区間の駅をまとめて追加</summary>
+          <select id="rw-select"><option value="">読み込み中…</option></select>
+          <div class="grid2">
+            <label class="field"><span>乗る駅</span><select id="rw-from"></select></label>
+            <label class="field"><span>降りる駅</span><select id="rw-to"></select></label>
+          </div>
+          <button id="btn-add-range" class="btn block" type="button" disabled>間の駅をまとめて追加</button>
+        </details>
 
-      <p class="muted small">地図を拡大すると駅が表示され、タップして追加できます。上から順に回ります。</p>
-      <ol id="trip-list" class="trip-list"></ol>
-      <div class="train-info"></div>
-      <button class="btn block" type="button" data-goto="stores">次へ：駅の近くの店舗を探す →</button>
-      <button id="btn-clear-trip" class="btn block ghost" type="button">行程を空にする</button>
+        <p class="muted small">地図を拡大すると駅が表示され、タップして追加できます。上から順に回ります。駅と駅の間は、電車・バス・徒歩のうち一番早い手段を自動で選びます。</p>
+        <ol id="trip-list" class="trip-list"></ol>
+        <div class="train-info"></div>
+        <label class="field">
+          <span>駅から半径 <output id="radius-out">600</output> m（徒歩 約<output id="radius-walk">10</output>分）の店を回る</span>
+          <input id="radius" type="range" min="200" max="1500" step="100" value="600">
+        </label>
+        <div id="store-hint" class="store-hint"></div>
+        <button id="btn-clear-trip" class="btn block ghost" type="button">行程を空にする</button>
+      </div>
+
+      <button class="btn primary block" type="button" data-goto="plan">次へ：計画へ →</button>
     </section>
 
     <section class="card" data-panel="stores">
-      <h2><span class="step">2</span>駅の近くの店舗 <span id="store-count" class="badge"></span></h2>
-      <label class="field">
-        <span>駅から半径 <output id="radius-out">600</output> m（徒歩 約<output id="radius-walk">10</output>分）</span>
-        <input id="radius" type="range" min="200" max="1500" step="100" value="600">
-      </label>
-      <div id="store-hint" class="store-hint"></div>
+      <h2><span class="step">2</span>コンビニの種類 <span id="store-count" class="badge"></span></h2>
 
       <div class="chains">
         <label><input type="checkbox" name="chain" value="lawson"> <span class="chain-icon" data-chain="lawson"></span>ローソン</label>
@@ -94,8 +95,8 @@
         <label><input type="checkbox" name="chain" value="newdays"> <span class="chain-icon" data-chain="newdays"></span>NewDays</label>
       </div>
 
-      <button id="btn-search" class="btn primary block" type="button">🔍 店舗を検索</button>
-      <p class="muted small">チェックを外した店舗は計画から除外されます。店舗は、いちばん近い行程の駅に割り当てます。</p>
+      <h3 class="subhead">回る店</h3>
+      <p class="muted small">チェックを外した店舗は計画から除外されます。駅検索では、駅を足すと自動で店を探し、いちばん近い駅に割り当てます。エリア検索では、計画を作ると選んだ駅ごとに出ます。</p>
       <div id="store-tools" class="list-tools" hidden>
         <button class="btn small ghost" type="button" data-action="open-all">▾ すべて開く</button>
         <button class="btn small ghost" type="button" data-action="close-all">▸ すべて閉じる</button>
@@ -105,7 +106,7 @@
     </section>
 
     <section class="card" data-panel="plan">
-      <h2><span class="step">3</span>計画を作る</h2>
+      <h2><span class="step">3</span>計画</h2>
       <label class="field">
         <span>くじ・グッズ名（記録の単位）</span>
         <input id="campaign" type="text" placeholder="例：一番くじ ○○">
@@ -113,25 +114,17 @@
       <p id="record-summary" class="muted small"></p>
       <div class="grid2">
         <label class="field"><span>日付（平日・土休日ダイヤ）</span><input id="plan-date" type="date"></label>
-        <label class="field"><span>最初の駅にいる時刻</span><input id="plan-start" type="time"></label>
+        <label class="field"><span id="plan-start-label">開始時刻</span><input id="plan-start" type="time"></label>
         <label class="field"><span>1店あたりの滞在（分）</span><input id="dwell" type="number" min="0" max="60" inputmode="numeric"></label>
         <label class="field"><span>駅に戻ってから乗るまでの余裕（分）</span><input id="transfer" type="number" min="0" max="30" inputmode="numeric"></label>
       </div>
       <label class="field">
-        <span>終了時刻（任意）：この時刻までに駅へ戻れるよう、間に合わない店を外します</span>
+        <span>終了時刻（任意）：この時刻までに駅へ戻れるよう、間に合わない店を外します。エリア検索で空欄のときは 3 時間で計画します</span>
         <div class="row"><input id="plan-deadline" type="time"><button id="btn-clear-deadline" class="btn small ghost" type="button">なし</button></div>
       </label>
-      <div class="field">
-        <span>使う移動手段（徒歩は常に使います）</span>
-        <div class="modes">
-          <label><input type="checkbox" name="mode" value="rail"> 🚃 電車</label>
-          <label><input type="checkbox" name="mode" value="bus"> 🚌 バス</label>
-          <label><input type="checkbox" name="mode" value="bike"> 🚲 シェアサイクル</label>
-        </div>
-        <span class="muted small">シェアサイクルは、ドコモ・バイクシェアと HELLO CYCLING のポートの台数を、計画を作るときに取得します（データが大きく、少し時間がかかります）。電車とバスを外すと自転車だけで回れます。</span>
-      </div>
       <label class="check"><input id="skip-recorded" type="checkbox"> 記録済み（購入・売切れ等）の店舗を除く</label>
-      <button id="btn-plan" class="btn primary block" type="button">🚃 時刻表で計画を作る</button>
+      <button id="btn-plan" class="btn primary block" type="button">🗓 計画を作る</button>
+      <div id="area-summary"></div>
       <div id="plan-summary"></div>
     </section>
 
@@ -190,6 +183,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=96f7e0f6"></script>
+  <script type="module" src="js/app.js?v=7add0f74"></script>
 </body>
 </html>
