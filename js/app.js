@@ -1,9 +1,9 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=5720144e';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=5720144e';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=5720144e';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=5720144e';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=5720144e';
+import { ODPT_SOURCES } from './config.js?v=6da7108a';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=6da7108a';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=6da7108a';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=6da7108a';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=6da7108a';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -632,6 +632,21 @@ function tripIndexOf(stopId, hint) {
   return best;
 }
 
+// いま居るとみなす駅（組み直しの起点）の、行程での位置。
+// まだ回っていない店がある最初の駅。その駅の店を全部記録済みなら次の駅。何も記録していなければ計画の最初の駅
+function currentTripIndex() {
+  const p = db.plan;
+  if (!p?.stops.length) return db.trip.length ? 0 : -1;
+  const records = currentRecords();
+  let k = p.stops.findIndex((s) => s.visits.some((v) => !records[v.store.id]?.status));
+  if (k < 0) {
+    const lastDone = p.stops.findLastIndex((s) => s.visits.some((v) => records[v.store.id]?.status));
+    k = lastDone < 0 ? 0 : Math.min(lastDone + 1, p.stops.length - 1);
+  }
+  const i = tripIndexOf(p.stops[k].stationId, p.fromIndex + k);
+  return i >= 0 ? i : Math.min(p.fromIndex, db.trip.length - 1);
+}
+
 const destLabel = (dest) =>(dest?.length ? `${dest.map(stationName).join('・')}行` : '');
 
 function renderPlan() {
@@ -682,6 +697,18 @@ function renderPlan() {
       L.polyline(line, { color: railwayColor(s.ride.railway), weight: 6, opacity: 0.8, interactive: false }).addTo(layers.route);
     }
   });
+
+  // 計画のあとに駅・店舗・設定を変えたら、巡回を見ている人にも分かるように出し、その場で組み直せるようにする。
+  // 回っている最中に予定が勝手に変わると混乱するので、自動では組み直さない
+  $('#nav-card').classList.toggle('stale', !!p.stale);
+  const banner = $('#stale-banner');
+  banner.hidden = !p.stale;
+  if (p.stale) {
+    const from = currentTripIndex();
+    banner.innerHTML = `
+      <div>⚠ 計画を作ったあとに駅・店舗・設定が変わったため、この計画は古いままです。</div>
+      ${from >= 0 ? `<button class="btn primary block" type="button" data-action="replan" data-index="${from}">🔄 今の時刻で組み直す（${esc(stationName(db.trip[from].id))}から・記録済みの店を除く）</button>` : ''}`;
+  }
 
   const visits = p.stops.flatMap((s) => s.visits);
   const doneCount = visits.filter((v) => records[v.store.id]?.status).length;
@@ -903,6 +930,11 @@ $('#store-list').addEventListener('click', (e) => {
   map.setView(marker.getLatLng(), Math.max(map.getZoom(), 16));
   marker.openPopup();
   $('#map').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+$('#stale-banner').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action=replan]');
+  if (btn) withBusy(btn, '時刻表を確認中…', () => computePlan(Number(btn.dataset.index), true));
 });
 
 $('#plan-list').addEventListener('click', (e) => {
