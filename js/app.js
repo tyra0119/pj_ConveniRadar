@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=921e916d';
-import { busData, loadBus } from './bus.js?v=921e916d';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=921e916d';
-import { checkAreaBases, planAreaRoute } from './area.js?v=921e916d';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=921e916d';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=921e916d';
-import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=921e916d';
-import { CHAINS, STATUSES, fetchStoresAround, storeDataDate } from './stores.js?v=921e916d';
-import { $, CancelError, ask, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=921e916d';
+import { ODPT_SOURCES } from './config.js?v=a153cd0a';
+import { busData, loadBus } from './bus.js?v=a153cd0a';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=a153cd0a';
+import { collectBases, planAreaRoute } from './area.js?v=a153cd0a';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=a153cd0a';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=a153cd0a';
+import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, buildPlan, commonRailways, hopOptions, pointId, pointStop } from './plan.js?v=a153cd0a';
+import { CHAINS, STATUSES, fetchStoresAround, storeDataDate } from './stores.js?v=a153cd0a';
+import { $, CancelError, ask, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=a153cd0a';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -90,10 +90,11 @@ const minutes = (m) => `${Math.max(1, Math.round(m))}分`;
 // 行程の停留所は、駅グループ（stop:…）かバス停（bus:…）。駅 ID・ポール ID からも引ける
 function stopById(id) {
   const key = String(id ?? '');
+  if (key.startsWith('point:')) return pointStop(key); // エリアの中心（歩いて回るとき）
   return key.startsWith('bus:') ? busData()?.stopById.get(key) : net?.stopById.get(key) ?? busData()?.stopById.get(key);
 }
 const stopName = (id) => stopById(id)?.name ?? odptStationName(id);
-const stopWord = (id) => (String(id).startsWith('bus:') ? 'バス停' : '駅');
+const stopWord = (id) => (String(id).startsWith('bus:') ? 'バス停' : String(id).startsWith('point:') ? 'エリアの中心' : '駅');
 
 // 探し方は 2 つ（2026-09-14 利用者の指示で整理。似た設定があちこちにあって使いにくかった）で、どちらか一方だけを使う
 // （2026-09-15 利用者の指示で排他に。切り替えると前の探し方で決めた内容は消す）
@@ -763,7 +764,7 @@ function renderTrip() {
   db.trip.forEach((t, i) => labels.set(t.id, [...(labels.get(t.id) ?? []), i + 1]));
   for (const [id, nums] of labels) {
     const st = stopById(id);
-    if (!st) continue;
+    if (!st || st.kind === 'point') continue; // エリアの中心は、エリアの 🧭 の印で出している
     // 駅から歩いて回る範囲の円は駅周辺検索だけ。エリア検索は範囲の円だけを出す（駅・バス停のまわりの話ではないため）
     if (!isAreaMode()) {
       L.circle([st.lat, st.lng], {
@@ -1008,7 +1009,7 @@ function syncPlanButton() {
   const made = !!db.plan && !db.plan.stale;
   btn.disabled = searching || made;
   btn.textContent = made ? '✓ 計画を作りました（場所・設定を変えると作り直せます）'
-    : isAreaMode() ? '🧭 回る駅と店を決めて計画を作る' : '🗓 時刻表で計画を作る';
+    : isAreaMode() ? '🧭 エリア内の店を探して計画を作る' : '🗓 時刻表で計画を作る';
 }
 
 // 巡回で記録のボタンを開いている店。null なら次に回る店、'' なら開かない
@@ -1628,7 +1629,12 @@ function renderArea() {
   }
   const l = a.last;
   // 見積もりは、それを元に作った計画が古くなっていないときだけ出す（中心や半径を変えたあとに前回の見積もりが残っていた）
-  $('#area-summary').innerHTML = !l || !isAreaMode() || !db.plan || db.plan.stale ? '' : `
+  $('#area-summary').innerHTML = !l || !isAreaMode() || !db.plan || db.plan.stale ? '' : l.walking ? `
+    ${l.autoEnd ? `<p class="small">⏰ 終了時刻が空欄なので、開始から 3 時間（${fmtMin(l.autoEnd)} まで）で回ります</p>` : ''}
+    <p class="small">🚶 範囲内の候補 ${l.candidates}店を、エリアの中心から歩いて回る計画にしました。${
+  l.reason === 'modes' ? '（使う移動手段をすべて外しているため）'
+    : l.reason === 'nodata' ? '（範囲内に、電車・バスで使える駅・バス停のデータが無いため）'
+      : '（駅・バス停を使って回る順番が見つからなかったため）'}</p>` : `
     ${l.autoEnd ? `<p class="small">⏰ 終了時刻が空欄なので、開始から 3 時間（${fmtMin(l.autoEnd)} まで）で選びました</p>` : ''}
     <div class="summary">
       <div><span class="big">${l.chosen}</span><span class="label">駅・バス停</span></div>
@@ -1680,8 +1686,6 @@ async function computeAreaInner(btn, signal = null) {
   step('データを読み込み中…');
   if (modes.bus) await loadBus();
   if (modes.bike) await Promise.all([loadBikeInfo(), loadBikeStatus()]);
-  // 範囲内に駅・バス停が無い（データの無い地域など）ときは、店舗を探す前に理由を出して止める
-  checkAreaBases({ net, bus: modes.bus ? busData() : null, center: area.center, radiusM: area.radiusKm * 1000 });
   stopIfCancelled(signal);
 
   step('範囲内の店舗を検索中…');
@@ -1700,7 +1704,20 @@ async function computeAreaInner(btn, signal = null) {
   stopIfCancelled(signal);
   const records = currentRecords();
   const candidates = found.filter((s) => db.settings.chains.includes(s.chain) && !db.excluded[s.id] && !(db.settings.skipRecorded && records[s.id]?.status));
-  const result = planAreaRoute({
+  if (!candidates.length) {
+    const kinds = db.settings.chains.map((k) => CHAINS[k].label).join('・') || '（種類が選ばれていません）';
+    throw new Error(`範囲内（半径 ${fmtDist(area.radiusKm * 1000)}）に、${kinds} が見つかりませんでした。半径を広げるか、「設定」タブでコンビニの種類を増やしてください`);
+  }
+
+  // エリア検索は「エリア内のコンビニを回る」（2026-09-15 利用者の指摘「なぜ駅・バスを探してるの？エリア内のコンビニを検索してほしい」）。
+  // 駅・バス停は、電車・バス・自転車で店の間を速く移動するためだけに使う。移動手段が全部オフ、範囲内に駅・バス停のデータが無い（神戸市など）、
+  // または駅・バス停を使って回れないときは、エリアの中心から歩いて回る
+  const usesTransit = modes.rail || modes.bus || modes.bike;
+  const bases = usesTransit ? collectBases({ net, bus: modes.bus ? busData() : null, center: area.center, radiusM: area.radiusKm * 1000 }) : [];
+  let result = null;
+  if (bases.length) {
+    try {
+      result = planAreaRoute({
     net,
     bus: modes.bus ? busData() : null,
     center: area.center,
@@ -1711,17 +1728,27 @@ async function computeAreaInner(btn, signal = null) {
     dwell: db.settings.dwell,
     transfer: db.settings.transfer,
     modes,
-  });
+      });
+    } catch (e) {
+      console.warn('駅・バス停を使って回れないので、中心から歩いて回ります', e);
+    }
+  }
+  const walking = !result;
 
-  // 選んだ順番を行程に入れる。店舗は範囲全体で探し済みなので、選んだ停留所は検索済みにする
-  db.trip = result.route.map((r) => ({ id: r.base.id }));
+  // 選んだ順番を行程に入れる（歩いて回るときは、エリアの中心だけ）
+  db.trip = walking ? [{ id: pointId(area.center) }] : result.route.map((r) => ({ id: r.base.id }));
   db.tripMode = 'area';
   db.stores = found; // エリア検索と駅周辺検索は排他なので、範囲の店で置き換える
   db.searchedAt = Date.now();
   db.searched = {}; // エリア検索は範囲全体で探し済み（停留所ごとの検索済みは使わない）
   db.plan = null;
   db.ui.openGroups = {};
-  area.last = {
+  area.last = walking ? {
+    walking: true,
+    reason: !usesTransit ? 'modes' : bases.length ? 'route' : 'nodata',
+    candidates: candidates.length,
+    autoEnd,
+  } : {
     candidates: candidates.length,
     bases: result.bases,
     chosen: result.route.length,
@@ -1736,7 +1763,7 @@ async function computeAreaInner(btn, signal = null) {
 
   // 実際の時刻表で計画を作る。最初の停留所にいる時刻は、中心からの徒歩を足した時刻
   step('時刻表で計画を作っています…');
-  $('#plan-start').value = toHHMM(startMin + result.walkToStart);
+  $('#plan-start').value = toHHMM(startMin + (walking ? 0 : result.walkToStart));
   try {
     await computePlan(0, false, signal);
   } finally {

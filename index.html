@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=921e916d">
+  <link rel="stylesheet" href="css/app.css?v=a153cd0a">
 </head>
 <body>
   <header class="topbar">
@@ -83,7 +83,7 @@
 
       <!-- エリア検索: 中心と半径の中から、回る駅・バス停と店を自動で選ぶ -->
       <div class="card-body" data-mode-panel="area">
-        <p class="muted small">中心と半径の中から、回る駅・バス停と店を自動で選びます。</p>
+        <p class="muted small">中心と半径の中のコンビニを探して、回る順番を決めます。電車・バス・シェアサイクルを使うときは、店の間の移動に駅・バス停も使います。</p>
         <div class="row wrap">
           <button id="btn-area-locate" class="btn toggle" type="button" aria-pressed="false">📍 現在地を中心に</button>
           <button id="btn-area-mapcenter" class="btn toggle" type="button" aria-pressed="false">🗺 地図の中心を中心に</button>
@@ -254,6 +254,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=921e916d"></script>
+  <script type="module" src="js/app.js?v=a153cd0a"></script>
 </body>
 </html>

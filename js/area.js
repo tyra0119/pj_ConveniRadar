@@ -1,9 +1,9 @@
 // エリア巡回モード: 中心と半径の中から、終了時刻までに回れる店が多くなるように、拠点（駅・バス停）と順番を選ぶ。
 // ここで使う移動時間は見積もり。選んだ順番を行程に入れたあと、実際の時刻表での計画は plan.js の buildPlan が作る
-import { portAccess } from './bike.js?v=921e916d';
-import { commonBusPatterns } from './bus.js?v=921e916d';
-import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, commonRailways } from './plan.js?v=921e916d';
-import { haversine } from './util.js?v=921e916d';
+import { portAccess } from './bike.js?v=a153cd0a';
+import { commonBusPatterns } from './bus.js?v=a153cd0a';
+import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, commonRailways } from './plan.js?v=a153cd0a';
+import { haversine } from './util.js?v=a153cd0a';
 
 const RAIL_SPEED = 550; // 駅間の見積もりの速さ（m/分 ≈ 33km/h、停車込み）
 const RAIL_WAIT = 5; // 列車を待つ時間の見積もり（分）
@@ -18,7 +18,7 @@ const BIKE_MIN = 400; // これより近い区間は歩く
 const walkMin = (a, b) => (haversine(a, b) * WALK_FACTOR) / WALK_SPEED;
 
 // 範囲内の拠点。駅はいつも使い（自転車だけで回るときも目印になる）、バス停はバスを使うときだけ
-function collectBases({ net, bus, center, radiusM }) {
+export function collectBases({ net, bus, center, radiusM }) {
   const inArea = (s) => haversine(center, s) <= radiusM;
   const bases = net.stops.filter(inArea).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, kind: 'rail', stop: s }));
   if (bus) bases.push(...bus.stops.filter(inArea).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, kind: 'bus', stop: s })));

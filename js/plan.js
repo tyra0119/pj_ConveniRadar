@@ -1,9 +1,9 @@
 // 巡回計画: 停留所（駅・バス停）で降りる → 徒歩で店を回る → 戻る → 電車・バス・徒歩で次の停留所へ
-import { findBikeRide } from './bike.js?v=921e916d';
-import { busData, commonBusPatterns, findBusRide, loadBus } from './bus.js?v=921e916d';
-import { findRide, loadNetwork } from './odpt.js?v=921e916d';
-import { solveTsp } from './tsp.js?v=921e916d';
-import { CancelError, fmtMin, haversine } from './util.js?v=921e916d';
+import { findBikeRide } from './bike.js?v=a153cd0a';
+import { busData, commonBusPatterns, findBusRide, loadBus } from './bus.js?v=a153cd0a';
+import { findRide, loadNetwork } from './odpt.js?v=a153cd0a';
+import { solveTsp } from './tsp.js?v=a153cd0a';
+import { CancelError, fmtMin, haversine } from './util.js?v=a153cd0a';
 
 export const WALK_SPEED = 80; // m/分（不動産広告の徒歩表示と同じ基準）
 export const WALK_FACTOR = 1.3; // 直線距離 → 道のりの係数（道路データを使わない概算）
@@ -13,7 +13,16 @@ const walkMin = (a, b) => (haversine(a, b) * WALK_FACTOR) / WALK_SPEED;
 
 // 行程の停留所。駅グループ（stop:…、駅 ID でも可）かバス停（bus:…）
 export function stopOf(net, id) {
+  if (String(id).startsWith('point:')) return pointStop(id);
   return String(id).startsWith('bus:') ? busData()?.stopById.get(id) : net?.stopById.get(id);
+}
+
+// エリアの中心などの「地点」（point:緯度,経度）。駅・バス停のデータが無い所でも、そこから歩いて店を回れるようにする（2026-09-15）
+export const pointId = (p) => `point:${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+export function pointStop(id) {
+  const m = /^point:(-?[\d.]+),(-?[\d.]+)$/.exec(String(id ?? ''));
+  if (!m) return null;
+  return { id: String(id), name: 'エリアの中心', lat: Number(m[1]), lng: Number(m[2]), kind: 'point', railways: [], operators: [], stations: [] };
 }
 
 // 駅を起点に全店を回って駅へ戻る、歩く時間が最短の順番
