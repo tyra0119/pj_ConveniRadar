@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>コンビニ巡回ルート 電車版</title>
+  <meta name="theme-color" content="#0b7285">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
+  <link rel="stylesheet" href="css/app.css?v=4352e1d6">
+</head>
+<body>
+  <header class="topbar">
+    <h1>🚃 コンビニ巡回ルート 電車版</h1>
+    <span class="unofficial">非公式</span>
+  </header>
+
+  <div id="map"></div>
+
+  <main class="panel">
+    <section class="card">
+      <h2><span class="step">1</span>回る駅 <span id="trip-count" class="badge"></span></h2>
+      <input id="station-search" type="search" placeholder="駅名で検索して追加" autocomplete="off">
+      <ul id="station-results" class="results"></ul>
+
+      <details class="range">
+        <summary>路線を選んで区間の駅をまとめて追加</summary>
+        <select id="rw-select"><option value="">読み込み中…</option></select>
+        <div class="grid2">
+          <label class="field"><span>乗る駅</span><select id="rw-from"></select></label>
+          <label class="field"><span>降りる駅</span><select id="rw-to"></select></label>
+        </div>
+        <button id="btn-add-range" class="btn block" type="button" disabled>間の駅をまとめて追加</button>
+      </details>
+
+      <p class="muted small">地図を拡大すると駅が表示され、タップして追加できます。上から順に回ります。</p>
+      <ol id="trip-list" class="trip-list"></ol>
+      <button id="btn-clear-trip" class="btn block ghost" type="button">行程を空にする</button>
+    </section>
+
+    <section class="card">
+      <h2><span class="step">2</span>駅の近くの店舗 <span id="store-count" class="badge"></span></h2>
+      <label class="field">
+        <span>駅から半径 <output id="radius-out">600</output> m（徒歩 約<output id="radius-walk">10</output>分）</span>
+        <input id="radius" type="range" min="200" max="1500" step="100" value="600">
+      </label>
+
+      <div class="chains">
+        <label><input type="checkbox" name="chain" value="lawson"> <span class="chain-icon" data-chain="lawson"></span>ローソン</label>
+        <label><input type="checkbox" name="chain" value="seven"> <span class="chain-icon" data-chain="seven"></span>セブン-イレブン</label>
+        <label><input type="checkbox" name="chain" value="family"> <span class="chain-icon" data-chain="family"></span>ファミリーマート</label>
+        <label><input type="checkbox" name="chain" value="ministop"> <span class="chain-icon" data-chain="ministop"></span>ミニストップ</label>
+        <label><input type="checkbox" name="chain" value="newdays"> <span class="chain-icon" data-chain="newdays"></span>NewDays</label>
+      </div>
+
+      <button id="btn-search" class="btn primary block" type="button">🔍 店舗を検索</button>
+      <p id="store-hint" class="small warn"></p>
+      <p class="muted small">チェックを外した店舗は計画から除外されます。店舗は、いちばん近い行程の駅に割り当てます。</p>
+      <ul id="store-list" class="store-list"></ul>
+    </section>
+
+    <section class="card">
+      <h2><span class="step">3</span>計画を作る</h2>
+      <label class="field">
+        <span>くじ・グッズ名（記録の単位）</span>
+        <input id="campaign" type="text" placeholder="例：一番くじ ○○">
+      </label>
+      <p id="record-summary" class="muted small"></p>
+      <div class="grid2">
+        <label class="field"><span>日付（平日・土休日ダイヤ）</span><input id="plan-date" type="date"></label>
+        <label class="field"><span>最初の駅にいる時刻</span><input id="plan-start" type="time"></label>
+        <label class="field"><span>1店あたりの滞在（分）</span><input id="dwell" type="number" min="0" max="60" inputmode="numeric"></label>
+        <label class="field"><span>駅に戻ってから乗るまでの余裕（分）</span><input id="transfer" type="number" min="0" max="30" inputmode="numeric"></label>
+      </div>
+      <label class="check"><input id="skip-recorded" type="checkbox"> 記録済み（購入・売切れ等）の店舗を除く</label>
+      <button id="btn-plan" class="btn primary block" type="button">🚃 時刻表で計画を作る</button>
+      <div id="plan-summary"></div>
+    </section>
+
+    <section id="nav-card" class="card" hidden>
+      <h2><span class="step">4</span>巡回 <span id="progress" class="badge"></span></h2>
+      <a id="btn-next" class="btn accent block big" target="_blank" rel="noopener"></a>
+      <ol id="plan-list" class="route-list"></ol>
+      <button id="btn-reset-records" class="btn block ghost" type="button">このくじの記録をリセット</button>
+    </section>
+
+    <footer class="muted small attribution">
+      <p>
+        <strong class="unofficial">非公式</strong>
+        このサイトは<span class="odpt-owner">各鉄道事業者</span>が運営するものではありません。表示内容について事業者へお問い合わせなさらないでください。
+      </p>
+      <p>
+        本サービスは、<a href="https://www.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>において提供されるデータ（公共交通オープンデータチャレンジで提供されるデータを含む）を利用しています。
+        データの原典は<span class="odpt-owner">各鉄道事業者</span>です。
+        本サービスの内容は必ずしも正確でない場合があり、必ずしも事業者の見解を反映するものではありません。
+        ダイヤ改正・運休・遅延などの最新情報は各事業者の公式サイトでご確認ください。
+        データに関するお問い合わせは<a href="https://www.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>へお願いいたします。
+      </p>
+      <p>
+        地図・店舗データ © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>（ODbL）／
+        祝日 <a href="https://holidays-jp.github.io/" target="_blank" rel="noopener">holidays-jp</a>／
+        徒歩の時間は直線距離からの概算です。
+        <span id="data-date"></span>
+      </p>
+    </footer>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script type="module" src="js/app.js?v=4352e1d6"></script>
+</body>
+</html>
