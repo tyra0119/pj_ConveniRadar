@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=53ca199a';
-import { busData, loadBus } from './bus.js?v=53ca199a';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=53ca199a';
-import { planAreaRoute } from './area.js?v=53ca199a';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=53ca199a';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=53ca199a';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=53ca199a';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=53ca199a';
-import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=53ca199a';
+import { ODPT_SOURCES } from './config.js?v=9c449be1';
+import { busData, loadBus } from './bus.js?v=9c449be1';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=9c449be1';
+import { planAreaRoute } from './area.js?v=9c449be1';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=9c449be1';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=9c449be1';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=9c449be1';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=9c449be1';
+import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=9c449be1';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -232,20 +232,26 @@ const busyReasons = new Map();
 function setBusy(key, message) {
   if (message) busyReasons.set(key, message);
   else busyReasons.delete(key);
-  const latest = [...busyReasons.values()].at(-1);
+  const latest = [...busyReasons.entries()].at(-1);
   $('#busy').hidden = !latest;
-  if (latest) $('#busy-text').textContent = latest;
+  if (latest) $('#busy-text').textContent = latest[1];
+  // 店舗の検索を出しているときだけ「中断」を出す（2026-09-14 利用者の指示。混雑していると長く待たされるため）
+  $('#busy-cancel').hidden = latest?.[0] !== 'search';
 }
 
 // 店舗の検索中は、行程・半径・計画の操作を止める（検索中に駅や半径が変わると、何を探したかが食い違うため）
 let searching = false;
+let searchAbort = null; // 店舗の検索を「中断」で止めるための AbortController
 function setSearching(on) {
   searching = on;
+  searchAbort = on ? new AbortController() : null;
   setBusy('search', on ? '🔍 店舗を検索しています…　終わるまで、駅や設定は変えられません' : null);
   document.body.classList.toggle('searching', on);
   for (const el of document.querySelectorAll('#radius, #btn-search, #btn-plan, #station-search, #btn-clear-trip, #rw-select, #rw-from, #rw-to, input[name=chain]')) el.disabled = on;
   $('#btn-add-range').disabled = on || !net?.railwayById.get($('#rw-select').value);
 }
+
+$('#busy-cancel').addEventListener('click', () => searchAbort?.abort());
 
 function blockedWhileSearching() {
   if (!searching) return false;
@@ -277,7 +283,7 @@ async function searchStores({ onlyMissing = false } = {}) {
   setSearching(true);
   let found;
   try {
-    found = await fetchStoresAround(stations, radius);
+    found = await fetchStoresAround(stations, radius, { signal: searchAbort.signal });
   } finally {
     setSearching(false);
   }
@@ -314,6 +320,11 @@ function autoSearchMissing() {
   if (isAreaMode() || !net || autoSearching || !db.trip.length || !unsearchedStations().length) return;
   autoSearching = searchStores({ onlyMissing: true })
     .then(() => true, (e) => {
+      // 「中断」で止めたときは失敗ではないので小さく知らせ、続けて探さない（探していない駅は、半径の下の案内から探せる）
+      if (e.name === 'CancelError') {
+        toast('店舗の検索を中断しました。まだ探していない駅は、あとで探し直せます', 6000);
+        return false;
+      }
       console.error(e);
       notice(e.message, { title: '店舗を検索できませんでした' });
       return false;
@@ -1611,7 +1622,7 @@ async function computeAreaInner(btn) {
   setSearching(true);
   let found;
   try {
-    found = await fetchStoresAround([area.center], area.radiusKm * 1000 + walkR, { timeoutScale: 3 });
+    found = await fetchStoresAround([area.center], area.radiusKm * 1000 + walkR, { timeoutScale: 3, signal: searchAbort.signal });
   } finally {
     setSearching(false);
   }

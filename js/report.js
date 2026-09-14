@@ -1,6 +1,6 @@
 // 実績（くじの記録）を文章にして、メールアプリ・共有メニュー・コピーで送る。
 // GitHub Pages はサーバーを持たないので、アプリから自動でメールは送らない（送るのは利用者の端末のアプリ）
-import { STATUSES } from './stores.js?v=53ca199a';
+import { STATUSES } from './stores.js?v=9c449be1';
 
 const APP_URL = 'https://tyra0119.github.io/pj_ConveniRadar/';
 const MAILTO_MAX = 1800; // これより長い mailto はメールアプリによって途中で切れる

@@ -67,15 +67,29 @@ export function closeNotice() {
   if (box) box.hidden = true;
 }
 
+// 利用者が止めた（「中断」を押した）ときのエラー。失敗ではないので、中央の知らせではなく小さく知らせる
+export class CancelError extends Error {
+  constructor(message = '中断しました') {
+    super(message);
+    this.name = 'CancelError';
+  }
+}
+
+// options.signal を渡すと、呼び出し側からも止められる（時間切れとは別に）
 export async function fetchJson(url, options = {}, timeoutMs = 20000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const outer = options.signal;
+  const stop = () => ctrl.abort();
+  if (outer?.aborted) stop();
+  outer?.addEventListener('abort', stop);
   try {
     const res = await fetch(url, { ...options, signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } finally {
     clearTimeout(timer);
+    outer?.removeEventListener('abort', stop);
   }
 }
 
@@ -86,6 +100,10 @@ export async function withBusy(btn, label, fn) {
   try {
     return await fn();
   } catch (e) {
+    if (e.name === 'CancelError') {
+      toast(e.message, 5000);
+      return undefined;
+    }
     console.error(e);
     notice(e.name === 'AbortError' ? '通信がタイムアウトしました。電波の良い所で、もう一度試してください' : e.message, { title: 'うまくいきませんでした' });
   } finally {
