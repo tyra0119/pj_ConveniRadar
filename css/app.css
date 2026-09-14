@@ -373,6 +373,7 @@ footer a { color: inherit; }
 .trip-item .num { width: 24px; height: 24px; font-size: 13px; }
 .trip-link { margin: 2px 0 0 10px; padding-left: 20px; font-size: 12.5px; color: var(--muted); border-left: 2px solid var(--line); }
 .trip-link.warn { color: var(--warn); }
+.trip-link .btn { margin: 2px 4px 0 0; padding: 2px 8px; font-size: 12.5px; color: var(--primary); border-color: var(--line); }
 
 /* 店舗リストの駅見出し */
 .store-list .group {
@@ -404,6 +405,17 @@ footer a { color: inherit; }
   border-left: 5px solid var(--c, var(--primary));
 }
 .tl-error { padding: 8px 10px; font-size: 13.5px; color: var(--warn); background: #fff4e6; border-radius: 8px; }
+
+/* 運行情報 */
+.train-info { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--bg); border-radius: 10px; }
+.train-info:empty { display: none; }
+.info-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.info { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; font-size: 13px; }
+.info-line { padding-left: 7px; font-weight: 600; border-left: 4px solid var(--c); }
+.info-status { color: var(--ok); }
+.info.alert .info-status { font-weight: 700; color: var(--ng); }
+.info.notice .info-status, .info.none .info-status { color: var(--muted); }
+.info .small { flex-basis: 100%; }
 
 .attribution { display: flex; flex-direction: column; gap: 6px; }
 .attribution p { margin: 0; }

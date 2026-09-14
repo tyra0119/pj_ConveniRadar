@@ -1,7 +1,7 @@
 // 駅ごとの巡回計画: 駅で降りる → 徒歩で店を回る → 駅に戻る → 時刻表で次の駅へ
-import { findRide, loadNetwork } from './odpt.js?v=4352e1d6';
-import { solveTsp } from './tsp.js?v=4352e1d6';
-import { haversine } from './util.js?v=4352e1d6';
+import { findRide, loadNetwork } from './odpt.js?v=5720144e';
+import { solveTsp } from './tsp.js?v=5720144e';
+import { haversine } from './util.js?v=5720144e';
 
 export const WALK_SPEED = 80; // m/分（不動産広告の徒歩表示と同じ基準）
 export const WALK_FACTOR = 1.3; // 直線距離 → 道のりの係数（道路データを使わない概算）
@@ -21,16 +21,30 @@ export function stationTour(station, stores) {
   };
 }
 
-// 2 つの駅に共通する、時刻表のある路線
+/**
+ * 2 つの駅（駅グループ）を乗り換えなしで結ぶ路線。
+ * 返り値: [{ railway, from: その路線の出発駅 ID, to: その路線の到着駅 ID }]
+ * 例: 池袋 → 和光市 なら 東上線・有楽町線・副都心線 の 3 つ
+ */
 export function commonRailways(net, fromId, toId) {
-  const a = net.stationById.get(fromId);
-  const b = net.stationById.get(toId);
-  if (!a || !b) return [];
-  return a.railways.filter((r) => b.railways.includes(r)).map((r) => net.railwayById.get(r));
+  const a = net.stopById.get(fromId);
+  const b = net.stopById.get(toId);
+  if (!a || !b || a === b) return [];
+  const links = [];
+  for (const sa of a.stations) {
+    for (const r of net.stationById.get(sa)?.railways ?? []) {
+      if (links.some((l) => l.railway.id === r)) continue;
+      const sb = b.stations.find((id) => net.stationById.get(id)?.railways.includes(r));
+      if (sb) links.push({ railway: net.railwayById.get(r), from: sa, to: sb });
+    }
+  }
+  return links;
 }
 
+const linesOf = (net, stop) => stop.railways.map((r) => net.railwayById.get(r)?.title).filter(Boolean).join('・');
+
 /**
- * trip: [{ id: 駅ID }]（回る順）
+ * trip: [{ id: 駅グループ ID }]（回る順）
  * storesByStop: trip と同じ長さの配列。各駅で回る店
  * startMin: 最初の駅にいる時刻（その日の 0:00 からの分）
  */
@@ -40,7 +54,11 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
   let clock = startMin;
 
   for (let i = 0; i < trip.length; i++) {
-    const station = net.stationById.get(trip[i].id);
+    const station = net.stopById.get(trip[i].id);
+    if (!station) {
+      stops.push({ stationId: trip[i].id, arrive: clock, visits: [], backLeg: null, ready: clock, ride: null, error: '駅のデータが見つかりません（駅・路線データの更新で無くなった可能性があります）' });
+      break;
+    }
     const tour = stationTour(station, storesByStop[i] ?? []);
     const arrive = clock;
     const visits = tour.stores.map((store, k) => {
@@ -55,17 +73,27 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
     stops.push(stop);
     if (i === trip.length - 1) break;
 
-    const nextId = trip[i + 1].id;
-    if (nextId === station.id) continue; // 同じ駅が続くときは乗らずにそのまま次へ
-    const railways = commonRailways(net, station.id, nextId);
-    if (!railways.length) {
-      stop.error = `${net.stationById.get(nextId)?.name ?? '次の駅'}へ乗り換えなしで行ける路線がありません（乗り換えにはまだ対応していません）`;
+    const next = net.stopById.get(trip[i + 1].id);
+    if (next === station) continue; // 同じ駅が続くときは乗らずにそのまま次へ
+    if (!next) {
+      stop.error = '次の駅のデータが見つかりません';
       break;
     }
-    const rides = await Promise.all(railways.map((rw) => findRide({ railway: rw.id, from: station.id, to: nextId, earliest: clock + transfer, day })));
-    const ride = rides.filter(Boolean).sort((x, y) => x.arr - y.arr || y.dep - x.dep)[0];
+
+    const links = commonRailways(net, station.id, next.id);
+    if (!links.length) {
+      stop.error = `${station.name}駅と${next.name}駅を乗り換えなしで結ぶ路線がありません（${station.name}：${linesOf(net, station)}／${next.name}：${linesOf(net, next)}）。`
+        + '乗り換えにはまだ対応していないので、間に乗り換える駅を追加してください';
+      break;
+    }
+
+    const results = await Promise.all(links.map((l) => findRide({ railway: l.railway.id, from: l.from, to: l.to, earliest: clock + transfer, day })
+      .catch((e) => ({ reason: e.message }))));
+    const ride = results.map((r) => r.ride).filter(Boolean).sort((x, y) => x.arr - y.arr || y.dep - x.dep)[0];
     if (!ride) {
-      stop.error = '乗れる列車が見つかりません（終電後か、時刻表を取得できない駅です）';
+      stop.error = `${station.name}→${next.name}：乗れる列車が見つかりません。`
+        + links.map((l, k) => `${l.railway.title}：${results[k].reason}`).join(' ／ ')
+        + (results.every((r) => r.last) ? '。回る店を減らすか駅を外すと、最終列車に間に合うことがあります' : '');
       break;
     }
     stop.ride = ride;
@@ -74,5 +102,6 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
 
   const visited = stops.reduce((n, s) => n + s.visits.length, 0);
   const walk = stops.reduce((n, s) => n + s.visits.reduce((m, v) => m + v.walkMin, 0) + (s.backLeg?.min ?? 0), 0);
-  return { stops, startMin, endMin: stops.at(-1)?.error ? null : clock, visited, walkMin: walk, complete: !stops.some((s) => s.error) };
+  const error = stops.find((s) => s.error)?.error ?? null;
+  return { stops, startMin, endMin: error ? null : clock, visited, walkMin: walk, complete: !error, error };
 }

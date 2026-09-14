@@ -1,9 +1,9 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=4352e1d6';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainTypeTitle } from './odpt.js?v=4352e1d6';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=4352e1d6';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=4352e1d6';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=4352e1d6';
+import { ODPT_SOURCES } from './config.js?v=5720144e';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=5720144e';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=5720144e';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=5720144e';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=5720144e';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -17,8 +17,7 @@ const DEFAULTS = {
   trip: [], // [{ id: 駅ID }] 回る順
   stores: [], // 直近の検索結果
   searchedAt: null,
-  searchedStations: [],
-  searchedRadius: 0,
+  searched: {}, // { 駅ID: 店舗を検索した半径(m) }
   excluded: {}, // { storeId: true }
   records: {}, // { くじ名: { storeId: { status, note, at } } }
   plan: null,
@@ -31,7 +30,10 @@ function load() {
   const base = structuredClone(DEFAULTS);
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    return { ...base, ...raw, settings: { ...base.settings, ...raw.settings } };
+    // 旧形式（検索した駅の一覧と半径を別々に保存）から移す
+    const { searchedStations = [], searchedRadius = 0, ...rest } = raw;
+    const searched = raw.searched ?? Object.fromEntries(searchedStations.map((id) => [id, searchedRadius]));
+    return { ...base, ...rest, searched, settings: { ...base.settings, ...raw.settings } };
   } catch {
     return base;
   }
@@ -67,9 +69,10 @@ function markPlanStale() {
   if (db.plan) db.plan.stale = true;
 }
 
+// ids は駅 ID でも駅グループ ID でもよい。行程には駅グループ（乗り換えできる 1 つの駅）で入れる
 function addStations(ids) {
   let added = 0;
-  for (const id of ids) {
+  for (const id of ids.map((x) => net?.stopById.get(x)?.id ?? x)) {
     if (db.trip.at(-1)?.id === id) continue;
     db.trip.push({ id });
     added++;
@@ -79,6 +82,8 @@ function addStations(ids) {
   save();
   renderAll();
   toast(added === 1 ? `「${stationName(ids.at(-1))}」を追加しました` : `${added}駅を追加しました`);
+  autoSearchMissing();
+  refreshTrainInfo();
 }
 
 function moveTrip(i, delta) {
@@ -88,6 +93,44 @@ function moveTrip(i, delta) {
   markPlanStale();
   save();
   renderAll();
+  refreshTrainInfo();
+}
+
+// 行程で隣り合う 2 駅の間にある駅を、路線ごとに返す。途中の駅が同じ路線（有楽町線と副都心線など）はまとめる
+function betweenStops(links) {
+  const st = (id) => net.stationById.get(id);
+  const isLoop = (order) => order.length >= 10 && haversine(st(order[0]), st(order.at(-1))) < 2500; // 山手線など
+  const out = [];
+  for (const l of links) {
+    const order = l.railway.order ?? [];
+    const i = order.indexOf(l.from);
+    const k = order.indexOf(l.to);
+    if (i < 0 || k < 0) continue;
+    let ids = i < k ? order.slice(i + 1, k) : order.slice(k + 1, i).reverse();
+    if (isLoop(order)) {
+      // 環状線は逆回りの方が近いことがある
+      const other = i < k ? [...order.slice(0, i).reverse(), ...order.slice(k + 1).reverse()] : [...order.slice(i + 1), ...order.slice(0, k)];
+      if (other.length < ids.length) ids = other;
+    }
+    const stops = [...new Set(ids.map((id) => net.stopById.get(id)?.id).filter(Boolean))];
+    if (!stops.length) continue;
+    const same = out.find((f) => f.stops.join() === stops.join());
+    if (same) same.titles.push(l.railway.title);
+    else out.push({ stops, titles: [l.railway.title] });
+  }
+  return out;
+}
+
+function fillBetween(i, k) {
+  const f = betweenStops(commonRailways(net, db.trip[i].id, db.trip[i + 1].id))[k];
+  if (!f) return;
+  db.trip.splice(i + 1, 0, ...f.stops.map((id) => ({ id })));
+  markPlanStale();
+  save();
+  renderAll();
+  toast(`${f.titles.join('・')}の途中の${f.stops.length}駅を追加しました`);
+  autoSearchMissing();
+  refreshTrainInfo();
 }
 
 function removeTrip(i) {
@@ -95,6 +138,7 @@ function removeTrip(i) {
   markPlanStale();
   save();
   renderAll();
+  refreshTrainInfo();
 }
 
 // 店舗を、いちばん近い行程の駅に割り当てる。同じ駅が 2 回出てくるときは最初の方に付ける
@@ -109,7 +153,7 @@ function assignStores() {
     let best = -1;
     let bestD = Infinity;
     for (const [id, i] of first) {
-      const st = net.stationById.get(id);
+      const st = net.stopById.get(id);
       const d = st ? haversine(st, s) : Infinity;
       if (d < bestD) {
         bestD = d;
@@ -122,20 +166,124 @@ function assignStores() {
   return groups;
 }
 
-async function searchStores() {
+// 店舗をまだ探していない駅（検索のあとに足した駅、半径を広げる前に探した駅）
+function unsearchedStations() {
+  if (!net) return [];
+  return [...new Set(db.trip.map((t) => t.id))]
+    .filter((id) => (db.searched[id] ?? 0) < db.settings.radius)
+    .map((id) => net.stopById.get(id))
+    .filter(Boolean);
+}
+
+// onlyMissing: 未検索の駅だけを探して、これまでの結果に足す
+async function searchStores({ onlyMissing = false } = {}) {
   if (!net) throw new Error('駅データを読み込み中です。少し待ってください');
   if (!db.trip.length) throw new Error('先に回る駅を追加してください');
-  const stations = [...new Set(db.trip.map((t) => t.id))].map((id) => net.stationById.get(id)).filter(Boolean);
-  db.stores = await fetchStoresAround(stations, db.settings.radius);
+  const stations = onlyMissing
+    ? unsearchedStations()
+    : [...new Set(db.trip.map((t) => t.id))].map((id) => net.stopById.get(id)).filter(Boolean);
+  if (!stations.length) return;
+
+  const found = await fetchStoresAround(stations, db.settings.radius);
+  if (onlyMissing) {
+    const known = new Set(db.stores.map((s) => s.id));
+    db.stores.push(...found.filter((s) => !known.has(s.id)));
+  } else {
+    db.stores = found;
+    db.searched = {};
+  }
+  for (const s of stations) db.searched[s.id] = db.settings.radius;
   db.searchedAt = Date.now();
-  db.searchedStations = stations.map((s) => s.id);
-  db.searchedRadius = db.settings.radius;
   markPlanStale();
   save();
   renderAll();
-  fitTrip();
-  const n = assignStores().reduce((k, g) => k + g.length, 0);
-  toast(n ? `${n}店舗見つかりました` : '見つかりませんでした。半径を広げて再検索してください', 4000);
+  if (!onlyMissing) fitTrip();
+
+  const ids = new Set(stations.map((s) => s.id));
+  const n = assignStores().reduce((k, g, i) => k + (ids.has(db.trip[i].id) ? g.length : 0), 0);
+  const where = onlyMissing ? `${stations.map((s) => s.name).join('・')}：` : '';
+  toast(n ? `${where}${n}店舗見つかりました` : `${where}見つかりませんでした。半径を広げてください`, 4000);
+}
+
+// 一度検索したあとに駅を足したり半径を広げたりしたら、足りない駅だけを自動で探す。
+// 検索ボタンの押し忘れで、足した駅が「0店」に見えていた（2026-09-14 池袋→和光市で発覚）
+let autoSearching = null;
+function autoSearchMissing() {
+  if (!db.searchedAt || !net || autoSearching || !unsearchedStations().length) return;
+  autoSearching = searchStores({ onlyMissing: true })
+    .then(() => true, (e) => {
+      console.error(e);
+      toast(e.message, 8000);
+      return false;
+    })
+    .then((ok) => {
+      autoSearching = null;
+      renderStores();
+      if (ok) autoSearchMissing(); // 検索中にさらに足された駅
+    });
+  renderStores();
+}
+
+// ===== 運行情報 =====
+const INFO_REFRESH_MS = 3 * 60 * 1000;
+let trainInfo = null; // Map 路線ID → { level: alert|notice|normal, status, text, date }
+let trainInfoError = '';
+
+// 行程の駅と駅を結ぶ路線と、計画で乗る路線
+function tripRailways() {
+  if (!net) return [];
+  const ids = new Set();
+  db.trip.forEach((t, i) => {
+    const next = db.trip[i + 1];
+    if (next) for (const l of commonRailways(net, t.id, next.id)) ids.add(l.railway.id);
+  });
+  for (const s of db.plan?.stops ?? []) if (s.ride) ids.add(s.ride.railway);
+  return [...ids];
+}
+
+async function refreshTrainInfo(force = false) {
+  if (!net || !tripRailways().length) return renderTrainInfo();
+  try {
+    trainInfo = await trainInformation({ maxAgeMs: force ? 0 : INFO_REFRESH_MS - 30000 });
+    trainInfoError = '';
+  } catch (e) {
+    trainInfoError = e.message;
+  }
+  renderTrip();
+  renderPlan();
+  renderTrainInfo();
+}
+
+function clockOf(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+const alertOf = (rid) => (trainInfo?.get(rid)?.level === 'alert' ? trainInfo.get(rid) : null);
+
+function renderTrainInfo() {
+  const rids = tripRailways();
+  let html = '';
+  if (rids.length) {
+    const rows = rids.map((rid) => {
+      const info = trainInfo?.get(rid);
+      const level = info?.level ?? 'none';
+      const label = level === 'none' ? (trainInfo ? '情報の提供なし' : '…') : level === 'normal' ? '平常運転' : `${level === 'alert' ? '⚠ ' : ''}${info.status}`;
+      return `
+        <li class="info ${level}">
+          <span class="info-line" style="--c:${railwayColor(rid)}">${esc(railwayLabel(rid))}</span>
+          <span class="info-status">${esc(label)}</span>
+          ${level === 'alert' || level === 'notice' ? `<div class="small">${esc(info.text)}</div>` : ''}
+        </li>`;
+    }).join('');
+    const latest = rids.map((r) => trainInfo?.get(r)?.date).filter(Boolean).sort().at(-1);
+    const when = trainInfoError || (trainInfo ? (latest ? `${clockOf(latest)} 時点` : '') : '取得中…');
+    html = `
+      <div class="row"><b class="small">🚦 運行情報</b><span class="muted small grow">${esc(when)}</span>
+        <button class="btn small ghost" type="button" data-action="refresh-info">更新</button></div>
+      <ul class="info-list">${rows}</ul>`;
+  }
+  document.querySelectorAll('.train-info').forEach((el) => { el.innerHTML = html; });
 }
 
 async function computePlan(fromIndex = 0, useNow = false) {
@@ -149,6 +297,10 @@ async function computePlan(fromIndex = 0, useNow = false) {
   const startTime = $('#plan-start').value || nowHHMM();
   let startMin = parseHHMM(startTime);
   if (startMin < 4 * 60) startMin += 24 * 60; // 0〜4 時は前日の運行日の続き（時刻表の数え方に合わせる）
+
+  // 店舗を探していない駅があれば、先に探す（探さずに計画すると、その駅は店なしになる）
+  if (autoSearching) await autoSearching;
+  if (unsearchedStations().length) await searchStores({ onlyMissing: true });
 
   const records = currentRecords();
   const skip = useNow || db.settings.skipRecorded;
@@ -166,7 +318,8 @@ async function computePlan(fromIndex = 0, useNow = false) {
   save();
   renderAll();
   fitPlan();
-  toast(plan.complete ? `${plan.visited}店舗・${plan.stops.length}駅の計画を作りました` : '途中までしか計画できませんでした（巡回の ⚠ を見てください）', 5000);
+  refreshTrainInfo();
+  toast(plan.complete ? `${plan.visited}店舗・${plan.stops.length}駅の計画を作りました` : `途中までしか計画できませんでした。${plan.error}`, plan.complete ? 5000 : 12000);
 }
 
 function toggleExcluded(id) {
@@ -247,18 +400,20 @@ function buildStationLayer() {
   syncStationLayer();
 }
 
+// 駅のマーカー（路線ごとの駅）から開いても、乗り換えできる駅全体として出す
 function stationPopup(st) {
-  const pos = db.trip.map((t, i) => (t.id === st.id ? i + 1 : 0)).filter(Boolean);
+  const stop = net.stopById.get(st.id) ?? st;
+  const pos = db.trip.map((t, i) => (t.id === stop.id ? i + 1 : 0)).filter(Boolean);
   const div = document.createElement('div');
   div.className = 'popup';
   div.innerHTML = `
-    <b>${esc(st.name)}</b>
-    <div class="muted small">${esc(st.railways.map(railwayLabel).join('、'))}</div>
+    <b>${esc(stop.name)}</b>
+    <div class="muted small">${esc(stop.railways.map(railwayLabel).join('、'))}</div>
     ${pos.length ? `<div class="small">行程の ${pos.join('・')} 番目</div>` : ''}
     <button class="btn small primary block" type="button">＋ 行程の最後に追加</button>`;
   div.querySelector('button').onclick = () => {
     map.closePopup();
-    addStations([st.id]);
+    addStations([stop.id]);
   };
   return div;
 }
@@ -282,7 +437,7 @@ function storePopup(s) {
 }
 
 function tripBounds() {
-  const pts = db.trip.map((t) => net?.stationById.get(t.id)).filter(Boolean).map((s) => [s.lat, s.lng]);
+  const pts = db.trip.map((t) => net?.stopById.get(t.id)).filter(Boolean).map((s) => [s.lat, s.lng]);
   return pts.length ? L.latLngBounds(pts) : null;
 }
 
@@ -305,6 +460,7 @@ function renderAll() {
   renderTrip();
   renderStores();
   renderPlan();
+  renderTrainInfo();
   renderRecordSummary();
   renderAttribution();
 }
@@ -322,10 +478,13 @@ function renderTrip() {
     const next = db.trip[i + 1];
     let link = '';
     if (next && net && next.id !== t.id) {
-      const rws = commonRailways(net, t.id, next.id);
-      link = rws.length
-        ? `<div class="trip-link">↓ ${esc(rws.map((r) => r.title).join(' / '))}</div>`
-        : '<div class="trip-link warn">↓ 乗り換えなしで行ける路線がありません</div>';
+      const links = commonRailways(net, t.id, next.id);
+      const fills = betweenStops(links);
+      link = links.length
+        ? `<div class="trip-link">↓ ${esc(links.map((l) => l.railway.title + (alertOf(l.railway.id) ? `（⚠${alertOf(l.railway.id).status}）` : '')).join(' / '))}
+            ${fills.map((f, k) => `<button class="btn small ghost" type="button" data-action="fill" data-fill="${k}">＋ 間の${f.stops.length}駅を追加（${esc(f.titles.join('・'))}）</button>`).join('')}
+          </div>`
+        : '<div class="trip-link warn">↓ 乗り換えなしで行ける路線がありません。乗り換えにはまだ対応していないので、間に乗り換える駅を追加してください</div>';
     }
     return `
       <li class="trip-item" data-index="${i}">
@@ -344,7 +503,7 @@ function renderTrip() {
   const labels = new Map();
   db.trip.forEach((t, i) => labels.set(t.id, [...(labels.get(t.id) ?? []), i + 1]));
   for (const [id, nums] of labels) {
-    const st = net.stationById.get(id);
+    const st = net.stopById.get(id);
     if (!st) continue;
     L.circle([st.lat, st.lng], {
       radius: db.settings.radius, color: '#0b7285', weight: 1, fillOpacity: 0.05, interactive: false,
@@ -368,7 +527,7 @@ function renderStationResults() {
     box.innerHTML = '<li class="empty">駅データを読み込み中です…</li>';
     return;
   }
-  const hits = net.stations
+  const hits = net.stops
     .filter((s) => norm(s.name).includes(q))
     .sort((a, b) => (norm(b.name) === q) - (norm(a.name) === q) || a.name.length - b.name.length)
     .slice(0, SEARCH_LIMIT);
@@ -413,8 +572,10 @@ function renderStores() {
 
   const all = groups.flat();
   $('#store-count').textContent = all.length ? `${all.filter((s) => !db.excluded[s.id]).length} / ${all.length}` : '';
-  const needsSearch = db.searchedAt && (db.trip.some((t) => !db.searchedStations.includes(t.id)) || db.settings.radius > db.searchedRadius);
-  $('#store-hint').textContent = needsSearch ? '駅や半径を変えたので、再検索すると店舗が増えることがあります' : '';
+  const pending = new Set(unsearchedStations().map((s) => s.id));
+  $('#store-hint').textContent = !db.searchedAt || !pending.size ? ''
+    : autoSearching ? '追加した駅の店舗を検索しています…'
+      : '店舗を探していない駅があります。「店舗を検索」を押してください';
 
   const list = $('#store-list');
   if (!db.trip.length || !db.searchedAt) {
@@ -429,7 +590,9 @@ function renderStores() {
     const head = `
       <li class="group" data-index="${i}">
         <span class="num" style="--c:var(--primary)">${i + 1}</span>${esc(stationName(db.trip[i].id))}
-        <span class="muted small">${g.length}店</span>
+        ${pending.has(db.trip[i].id)
+          ? `<span class="small warn">${autoSearching ? '検索中…' : '未検索'}</span>`
+          : `<span class="muted small">${g.length}店</span>`}
         ${g.length ? `<button class="btn small ghost" type="button" data-action="group">${allOff ? 'すべて含める' : 'すべて外す'}</button>` : ''}
       </li>`;
     return head + g.map((s) => {
@@ -458,7 +621,18 @@ function renderStores() {
   }
 }
 
-const destLabel = (dest) => (dest?.length ? `${dest.map(stationName).join('・')}行` : '');
+// 計画の駅が、いまの行程の何番目か。計画のあとに駅を足したり並べ替えたりすると
+// 「計画を作ったときの番号」とずれ、「今からここで」が別の駅から組み直していた。
+// 同じ駅が何度も出てくるときは、作ったときの番号に一番近いものを選ぶ。行程から外した駅は -1
+function tripIndexOf(stopId, hint) {
+  let best = -1;
+  db.trip.forEach((t, j) => {
+    if (t.id === stopId && (best < 0 || Math.abs(j - hint) < Math.abs(best - hint))) best = j;
+  });
+  return best;
+}
+
+const destLabel = (dest) =>(dest?.length ? `${dest.map(stationName).join('・')}行` : '');
 
 function renderPlan() {
   layers.route.clearLayers();
@@ -483,21 +657,29 @@ function renderPlan() {
     <p class="small">${esc(p.date)} ${fmtMin(p.startMin)} ${esc(firstName)}から ${p.stops.length}駅・乗車${rides.length}回</p>
     ${rides.some((r) => r.estimated) ? '<p class="small muted">「推定」の着時刻は、次の駅の時刻表や距離から見積もったものです</p>' : ''}
     ${usesChallenge ? `<p class="small muted">公共交通オープンデータチャレンジの時刻表を含みます（${ODPT_SOURCES.chl.until} まで）</p>` : ''}
-    ${!p.complete ? '<p class="small warn">⚠ 途中までしか計画できませんでした</p>' : ''}
+    ${!p.complete ? `<p class="small warn">⚠ 途中までしか計画できませんでした。${esc(p.error ?? '')}</p>` : ''}
     ${p.stale ? '<p class="small warn">⚠ 駅・店舗・設定が変わりました。計画を作り直してください</p>' : ''}`;
 
   // 地図: 駅から店を回る徒歩は破線、駅間の乗車は路線の色の実線
   p.stops.forEach((s, i) => {
-    const st = net?.stationById.get(s.stationId);
+    const st = net?.stopById.get(s.stationId);
     if (!st) return;
     if (s.visits.length) {
       L.polyline([[st.lat, st.lng], ...s.visits.map((v) => [v.store.lat, v.store.lng]), [st.lat, st.lng]], {
         color: '#c2255c', weight: 4, opacity: 0.75, dashArray: '6 8', interactive: false,
       }).addTo(layers.route);
     }
-    const nx = s.ride && net.stationById.get(p.stops[i + 1]?.stationId);
+    const nx = s.ride && net.stopById.get(p.stops[i + 1]?.stationId);
     if (nx) {
-      L.polyline([[st.lat, st.lng], [nx.lat, nx.lng]], { color: railwayColor(s.ride.railway), weight: 6, opacity: 0.8, interactive: false }).addTo(layers.route);
+      const line = [[st.lat, st.lng], [nx.lat, nx.lng]];
+      const alert = alertOf(s.ride.railway);
+      if (alert) {
+        // 遅延・運転見合わせの区間は太いオレンジで囲み、触れると本文を出す
+        L.polyline(line, { color: '#e8590c', weight: 16, opacity: 0.4 })
+          .bindTooltip(`⚠ ${esc(alert.status)}：${esc(alert.text)}`, { sticky: true, className: 'info-tip' })
+          .addTo(layers.route);
+      }
+      L.polyline(line, { color: railwayColor(s.ride.railway), weight: 6, opacity: 0.8, interactive: false }).addTo(layers.route);
     }
   });
 
@@ -514,15 +696,15 @@ function renderPlan() {
 
   let n = 0;
   $('#plan-list').innerHTML = p.stops.map((s, i) => {
-    const tripIndex = p.fromIndex + i;
+    const tripIndex = tripIndexOf(s.stationId, p.fromIndex + i);
     const head = `
       <li class="tl-station">
-        <span class="num" style="--c:var(--primary)">${tripIndex + 1}</span>
+        <span class="num" style="--c:var(--primary)">${tripIndex >= 0 ? tripIndex + 1 : '—'}</span>
         <div class="stop-info">
           <div class="store-name">${esc(stationName(s.stationId))}</div>
           <div class="muted small">${fmtMin(s.arrive)}${i === 0 ? 'から' : '着'} ・ ${s.visits.length ? `${s.visits.length}店` : '店なし'}</div>
         </div>
-        <button class="btn small" type="button" data-action="replan" data-index="${tripIndex}" title="この駅から、今の時刻で残りを組み直す">🔄 今からここで</button>
+        ${tripIndex >= 0 ? `<button class="btn small" type="button" data-action="replan" data-index="${tripIndex}" title="この駅から、今の時刻で残りを組み直す">🔄 今からここで</button>` : ''}
       </li>`;
 
     const stores = s.visits.map((v) => {
@@ -552,7 +734,8 @@ function renderPlan() {
     const ride = s.ride
       ? `<li class="tl-ride" style="--c:${railwayColor(s.ride.railway)}">
           <div><b>${fmtMin(s.ride.dep)}発</b> ${esc(trainTypeTitle(s.ride.type))} ${esc(destLabel(s.ride.dest))}</div>
-          <div class="muted small">${esc(railwayTitle(s.ride.railway))} ・ 駅で${Math.max(0, Math.round(s.ride.dep - s.ready))}分待ち → <b>${fmtMin(s.ride.arr)}着</b>${s.ride.estimated ? '（推定）' : ''}</div>
+          <div class="muted small">${esc(railwayLabel(s.ride.railway))} ・ 駅で${Math.max(0, Math.round(s.ride.dep - s.ready))}分待ち → <b>${fmtMin(s.ride.arr)}着</b>${s.ride.estimated ? '（推定）' : ''}</div>
+          ${alertOf(s.ride.railway) ? `<div class="small warn">⚠ ${esc(alertOf(s.ride.railway).status)}：${esc(alertOf(s.ride.railway).text)}</div>` : ''}
         </li>`
       : '';
 
@@ -575,7 +758,7 @@ function renderRecordSummary() {
 // 出典の「データの原典」は、いま行程に入っている路線の事業者にする
 function renderAttribution() {
   const ops = new Set();
-  for (const t of db.trip) for (const r of net?.stationById.get(t.id)?.railways ?? []) ops.add(net.railwayById.get(r)?.operator);
+  for (const t of db.trip) for (const r of net?.stopById.get(t.id)?.railways ?? []) ops.add(net.railwayById.get(r)?.operator);
   const names = [...ops].filter(Boolean).map(operatorTitle);
   document.querySelectorAll('.odpt-owner').forEach((el) => { el.textContent = names.length ? names.join('・') : '各鉄道事業者'; });
   $('#data-date').textContent = net ? `駅・路線データは ${net.generatedAt} 取得。` : '';
@@ -626,6 +809,7 @@ $('#trip-list').addEventListener('click', (e) => {
   if (btn.dataset.action === 'up') moveTrip(i, -1);
   else if (btn.dataset.action === 'down') moveTrip(i, 1);
   else if (btn.dataset.action === 'remove') removeTrip(i);
+  else if (btn.dataset.action === 'fill') fillBetween(i, Number(btn.dataset.fill));
 });
 
 $('#btn-clear-trip').addEventListener('click', () => {
@@ -635,6 +819,9 @@ $('#btn-clear-trip').addEventListener('click', () => {
   save();
   renderAll();
 });
+
+// 半径を広げたら、スライダーを離したときに広げた分を探す
+$('#radius').addEventListener('change', autoSearchMissing);
 
 $('#radius').addEventListener('input', (e) => {
   db.settings.radius = Number(e.target.value);
@@ -734,6 +921,12 @@ $('#plan-list').addEventListener('change', (e) => {
   if (id && e.target.dataset.action === 'note') setNote(id, e.target.value);
 });
 
+// 運行情報の「更新」（行程と巡回の 2 か所にある）
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action=refresh-info]');
+  if (btn) withBusy(btn, '更新中…', () => refreshTrainInfo(true));
+});
+
 // ===== 起動 =====
 document.querySelectorAll('.chain-icon[data-chain]').forEach((el) => { el.innerHTML = CHAINS[el.dataset.chain].icon; });
 syncControls();
@@ -746,10 +939,22 @@ if (!ODPT_SOURCES.pub.key && ODPT_SOURCES.pub.base.includes('api.odpt.org')) {
 loadNetwork()
   .then((n) => {
     net = n;
+    // 以前の保存データは路線ごとの駅 ID で持っているので、駅グループの ID にそろえる
+    const toStop = (id) => net.stopById.get(id)?.id ?? id;
+    db.trip = db.trip.map((t) => ({ id: toStop(t.id) }));
+    db.searched = Object.fromEntries(Object.entries(db.searched).map(([id, r]) => [toStop(id), r]));
+    for (const s of db.plan?.stops ?? []) s.stationId = toStop(s.stationId);
+    save();
     buildStationLayer();
     fillRailwaySelect();
     renderAll();
     renderStationResults();
+    autoSearchMissing();
+    refreshTrainInfo();
+    // 画面を開いている間は運行情報を取り直す（裏に回っているときは取らない）
+    setInterval(() => {
+      if (document.visibilityState === 'visible') refreshTrainInfo();
+    }, INFO_REFRESH_MS);
     if (db.plan) fitPlan();
     else fitTrip();
   })

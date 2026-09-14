@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=4352e1d6">
+  <link rel="stylesheet" href="css/app.css?v=5720144e">
 </head>
 <body>
   <header class="topbar">
@@ -35,6 +35,7 @@
 
       <p class="muted small">地図を拡大すると駅が表示され、タップして追加できます。上から順に回ります。</p>
       <ol id="trip-list" class="trip-list"></ol>
+      <div class="train-info"></div>
       <button id="btn-clear-trip" class="btn block ghost" type="button">行程を空にする</button>
     </section>
 
@@ -80,6 +81,7 @@
     <section id="nav-card" class="card" hidden>
       <h2><span class="step">4</span>巡回 <span id="progress" class="badge"></span></h2>
       <a id="btn-next" class="btn accent block big" target="_blank" rel="noopener"></a>
+      <div class="train-info"></div>
       <ol id="plan-list" class="route-list"></ol>
       <button id="btn-reset-records" class="btn block ghost" type="button">このくじの記録をリセット</button>
     </section>
@@ -108,6 +110,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=4352e1d6"></script>
+  <script type="module" src="js/app.js?v=5720144e"></script>
 </body>
 </html>
