@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=499868f9';
-import { busData, loadBus } from './bus.js?v=499868f9';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=499868f9';
-import { collectBases, planAreaRoute } from './area.js?v=499868f9';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=499868f9';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=499868f9';
-import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, buildPlan, commonRailways, hopOptions, pointId, pointStop } from './plan.js?v=499868f9';
-import { CHAINS, STATUSES, fetchStoresAround, storeDataDate } from './stores.js?v=499868f9';
-import { $, CancelError, ask, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=499868f9';
+import { ODPT_SOURCES } from './config.js?v=1b2fd914';
+import { busData, loadBus } from './bus.js?v=1b2fd914';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=1b2fd914';
+import { collectBases, planAreaRoute } from './area.js?v=1b2fd914';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=1b2fd914';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=1b2fd914';
+import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, buildPlan, commonRailways, hopOptions, pointId, pointStop } from './plan.js?v=1b2fd914';
+import { CHAINS, STATUSES, fetchStoresAround, storeDataDate } from './stores.js?v=1b2fd914';
+import { $, CancelError, ask, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=1b2fd914';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -476,9 +476,36 @@ async function computePlanInner(fromIndex = 0, useNow = false, signal = null) {
   const skip = useNow || db.settings.skipRecorded;
   const groups = assignStores().map((g) => g.filter((s) => !db.excluded[s.id] && !(skip && records[s.id]?.status)));
 
+  // 回る店が無い駅には寄らない（2026-09-15 利用者の指摘「志木〜みずほ台で、店の無い柳瀬川に案内された。案内は不要」）。
+  // 最初の駅（回り始める所）は残す。前に寄る駅と次の駅を直接結べない（乗り換えに要る）ときも残す。後ろに店のある駅が無ければ寄らない
+  const modes = currentModes();
+  const walkMax = isWalkOnly(modes) ? Infinity : WALK_HOP_MAX;
+  const connects = (aId, bId) => {
+    const opt = hopOptions(net, aId, bId, walkMax);
+    return (modes.rail && opt.rail.length > 0) || (modes.bus && opt.bus.length > 0) || !!opt.walk || (modes.bike && opt.dist > 400);
+  };
+  const tripAll = db.trip.slice(fromIndex);
+  const storesAll = groups.slice(fromIndex);
+  const lastWithStores = storesAll.findLastIndex((g) => g.length);
+  const trip = [];
+  const storesByStop = [];
+  const skippedStops = [];
+  tripAll.forEach((t, k) => {
+    const empty = !storesAll[k].length;
+    const trailing = k > lastWithStores;
+    const next = tripAll[k + 1];
+    const canSkip = k > 0 && empty && (trailing || (next && connects(trip.at(-1).id, next.id)));
+    if (canSkip) {
+      skippedStops.push(t.id);
+      return;
+    }
+    trip.push(t);
+    storesByStop.push(storesAll[k]);
+  });
+
   const plan = await buildPlan({
-    trip: db.trip.slice(fromIndex),
-    storesByStop: groups.slice(fromIndex),
+    trip,
+    storesByStop,
     startMin,
     dwell: db.settings.dwell,
     transfer: db.settings.transfer,
@@ -487,7 +514,7 @@ async function computePlanInner(fromIndex = 0, useNow = false, signal = null) {
     modes: currentModes(),
     signal,
   });
-  db.plan = { ...plan, fromIndex, date, startTime, stale: false };
+  db.plan = { ...plan, fromIndex, date, startTime, stale: false, skippedStops };
   planOpen.clear();
   navOpenStore = null;
   save();
@@ -1051,6 +1078,7 @@ function renderPlan() {
       <div><span class="big">${p.endMin != null ? fmtMin(p.endMin) : '—'}</span><span class="label">終了</span></div>
     </div>
     <p class="small">${esc(p.date)} ${fmtMin(p.startMin)} ${esc(firstName)}から ${p.stops.length}か所・移動${rides.length}回</p>
+    ${p.skippedStops?.length ? `<p class="small muted">店が無いので寄らない駅：${esc([...new Set(p.skippedStops)].map(stopName).join('、'))}</p>` : ''}
     ${rides.some((r) => r.estimated) ? '<p class="small muted">「推定」の着時刻は、次の駅の時刻表や距離から見積もったものです</p>' : ''}
     ${usesChallenge ? `<p class="small muted">公共交通オープンデータチャレンジの時刻表を含みます（${ODPT_SOURCES.chl.until} まで）</p>` : ''}
     ${p.deadline != null ? `<p class="small">⏰ 終了時刻 ${fmtMin(p.deadline)}（駅に戻るまで）・ ${p.dropped ? `間に合わない ${p.dropped}店を外しました` : '選んだ店はすべて間に合います'}</p>` : ''}
