@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=9c449be1">
+  <link rel="stylesheet" href="css/app.css?v=7fdcd74d">
 </head>
 <body>
   <header class="topbar">
@@ -66,7 +66,19 @@
       <h2><span class="step">2</span>どこを回るか</h2>
       <div class="mode-switch" role="group" aria-label="探し方">
         <button class="mode-btn" type="button" data-mode="area" aria-pressed="false">🧭 エリア検索</button>
-        <button class="mode-btn" type="button" data-mode="station" aria-pressed="true">🚉 駅検索</button>
+        <button class="mode-btn" type="button" data-mode="station" aria-pressed="true">🚉 駅周辺検索</button>
+      </div>
+      <p class="muted small">エリア検索と駅周辺検索は、どちらか一方だけを使います。切り替えると、前の探し方で決めた内容は消えます。</p>
+
+      <!-- 使う移動手段はエリア検索・駅周辺検索で共通。全部外すと徒歩だけで案内する -->
+      <div class="field">
+        <span>使う移動手段（すべて外すと、徒歩だけで案内します）</span>
+        <div class="modes">
+          <label><input type="checkbox" name="mode" value="rail"> 🚃 電車</label>
+          <label><input type="checkbox" name="mode" value="bus"> 🚌 バス</label>
+          <label><input type="checkbox" name="mode" value="bike"> 🚲 シェアサイクル</label>
+        </div>
+        <span class="muted small">シェアサイクルはポートの台数を計画を作るときに取得します（データが大きく、少し時間がかかります）。</span>
       </div>
 
       <!-- エリア検索: 中心と半径の中から、回る駅・バス停と店を自動で選ぶ -->
@@ -78,21 +90,12 @@
         </div>
         <p id="area-center" class="muted small"></p>
         <label class="field">
-          <span>半径 <output id="area-radius-out">3</output> km</span>
-          <input id="area-radius" type="range" min="1" max="10" step="1" value="3">
+          <span>半径 <output id="area-radius-out">3km</output></span>
+          <input id="area-radius" type="range" min="0" max="17" step="1" value="12">
         </label>
-        <div class="field">
-          <span>使う移動手段（徒歩は常に使います）</span>
-          <div class="modes">
-            <label><input type="checkbox" name="mode" value="rail"> 🚃 電車</label>
-            <label><input type="checkbox" name="mode" value="bus"> 🚌 バス</label>
-            <label><input type="checkbox" name="mode" value="bike"> 🚲 シェアサイクル</label>
-          </div>
-          <span class="muted small">シェアサイクルはポートの台数を計画を作るときに取得します（データが大きく、少し時間がかかります）。電車とバスを外すと自転車だけで回れます。</span>
-        </div>
       </div>
 
-      <!-- 駅検索: 回る駅を自分で並べる -->
+      <!-- 駅周辺検索: 回る駅を自分で並べる -->
       <div class="card-body" data-mode-panel="station">
         <input id="station-search" type="search" placeholder="駅名・バス停名で検索して追加" autocomplete="off">
         <ul id="station-results" class="results"></ul>
@@ -107,18 +110,19 @@
           <button id="btn-add-range" class="btn block" type="button" disabled>間の駅をまとめて追加</button>
         </details>
 
-        <p class="muted small">地図を拡大すると駅が表示され、タップして追加できます。上から順に回ります。駅と駅の間は、電車・バス・徒歩のうち一番早い手段を自動で選びます。</p>
+        <p class="muted small">地図を拡大すると駅が表示され、タップして追加できます。上から順に回ります。駅と駅の間は、使う移動手段と徒歩のうち一番早い手段を自動で選びます。</p>
         <ol id="trip-list" class="trip-list"></ol>
         <div class="train-info"></div>
         <label class="field">
-          <span>駅から半径 <output id="radius-out">600</output> m（徒歩 約<output id="radius-walk">10</output>分）の店を回る</span>
-          <input id="radius" type="range" min="200" max="1500" step="100" value="600">
+          <span>駅から半径 <output id="radius-out">600m</output>（徒歩 約<output id="radius-walk">10分</output>）の店を回る</span>
+          <input id="radius" type="range" min="0" max="17" step="1" value="4">
         </label>
         <div id="store-hint" class="store-hint"></div>
         <button id="btn-clear-trip" class="btn block ghost" type="button">行程を空にする</button>
       </div>
 
-      <button class="btn primary block" type="button" data-goto="plan">次へ：計画へ →</button>
+      <button id="btn-goto-plan" class="btn primary block" type="button" data-goto="plan">次へ：計画へ →</button>
+      <p id="search-next-hint" class="muted small" hidden></p>
     </section>
 
     <section class="card" data-panel="plan">
@@ -227,7 +231,7 @@
     <div class="busy-card notice-card confirm-card">
       <div class="notice-icon" aria-hidden="true">🗑</div>
       <b id="confirm-title">全部クリアしますか？</b>
-      <p class="confirm-list">消すもの：行程と計画（エリア検索・駅検索の両方）、エリアの中心、見つけた店、計画から外した店<br>残すもの：設定（くじ名・コンビニ・時刻など）、くじの記録</p>
+      <p class="confirm-list">消すもの：行程と計画（エリア検索・駅周辺検索の両方）、エリアの中心、見つけた店、計画から外した店<br>残すもの：設定（くじ名・コンビニ・時刻など）、くじの記録</p>
       <label class="check"><input id="clear-everything" type="checkbox"> 設定とくじの記録も消して、最初の状態に戻す（元に戻せません）</label>
       <div class="confirm-actions">
         <button id="clear-cancel" class="btn" type="button">キャンセル</button>
@@ -235,9 +239,21 @@
       </div>
     </div>
   </div>
+  <!-- 確かめてから進める操作（util.js の ask）。探し方の切り替えなど -->
+  <div id="ask" class="busy-overlay notice-overlay" role="alertdialog" aria-modal="true" aria-labelledby="ask-title" hidden>
+    <div class="busy-card notice-card confirm-card">
+      <div id="ask-icon" class="notice-icon" aria-hidden="true">⚠</div>
+      <b id="ask-title"></b>
+      <p id="ask-text" class="confirm-list"></p>
+      <div class="confirm-actions">
+        <button id="ask-cancel" class="btn" type="button">キャンセル</button>
+        <button id="ask-ok" class="btn primary" type="button">OK</button>
+      </div>
+    </div>
+  </div>
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=9c449be1"></script>
+  <script type="module" src="js/app.js?v=7fdcd74d"></script>
 </body>
 </html>

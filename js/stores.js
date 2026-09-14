@@ -1,5 +1,6 @@
-// コンビニの検索（OpenStreetMap / Overpass）。チェーン判定と重複除去は lawson/app.js から移したもの
-import { CancelError, fetchJson, haversine } from './util.js?v=9c449be1';
+// コンビニの検索（OpenStreetMap）。チェーン判定と重複除去は lawson/app.js から移したもの
+import { DATA_V } from './config.js?v=7fdcd74d';
+import { CancelError, fetchJson, haversine } from './util.js?v=7fdcd74d';
 
 // icon はチェーンの配色をもとにした簡易アイコン（公式ロゴではない）
 export const CHAINS = {
@@ -44,37 +45,119 @@ export const STATUSES = {
   skip: { label: 'スキップ', icon: '⏭', tone: 'skip' },
 };
 
-// 公開 Overpass サーバーは混雑すると 504 やタイムアウトになるため、応答の速い順に試す。
-// maps.mail.ru は応答しないまま待たされることがある（2026-09-14 に 15 秒切れが続いた）ので短めに切り上げる
-const OVERPASS_ENDPOINTS = [
-  { url: 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', timeout: 10000 },
-  { url: 'https://overpass-api.de/api/interpreter', timeout: 15000 },
-  { url: 'https://overpass.kumi.systems/api/interpreter', timeout: 30000 },
-];
+const cancelled = () => new CancelError('店舗の検索を中断しました');
 
-// 複数の駅それぞれの周り radiusM メートルを 1 回の問い合わせでまとめて探す
-// timeoutScale: 広い範囲（エリア巡回の半径 10km など）は時間がかかるので、待ち時間を伸ばす
-// signal: 利用者が「中断」を押したら止める。次のサーバーも試さずに CancelError にする
-export async function fetchStoresAround(points, radiusM, { timeoutScale = 1, signal } = {}) {
+// ===== 前もって作った店舗データ（tools/build_stores.py → docs/data/stores/） =====
+// 検索のたびに公開 Overpass サーバーへ問い合わせていたが、混雑すると 504・タイムアウトが続き、
+// 店舗検索が頻繁に失敗していた（2026-09-15 利用者の指摘）。ODPT の駅・バス停のまわりの店は先に取っておき、ここを読むだけにする
+let indexLoading = null;
+const tileLoading = new Map();
+
+function loadStoreIndex() {
+  indexLoading ??= fetchJson(`data/stores/index.json${DATA_V}`, {}, 20000).catch((e) => {
+    indexLoading = null;
+    throw e;
+  });
+  return indexLoading;
+}
+
+// 点のまわり radiusM を覆うタイル（{緯度の番号}_{経度の番号}）
+function tilesAround(points, radiusM, size) {
+  const keys = new Set();
+  for (const p of points) {
+    const dy = radiusM / 111320;
+    const dx = radiusM / (111320 * Math.cos((p.lat * Math.PI) / 180));
+    for (let y = Math.floor((p.lat - dy) / size); y <= Math.floor((p.lat + dy) / size); y++) {
+      for (let x = Math.floor((p.lng - dx) / size); x <= Math.floor((p.lng + dx) / size); x++) keys.add(`${y}_${x}`);
+    }
+  }
+  return [...keys];
+}
+
+function loadTile(key, chains) {
+  if (!tileLoading.has(key)) {
+    const p = fetchJson(`data/stores/${key}.json${DATA_V}`, {}, 20000)
+      .then((rows) => rows.map(([id, name, c, lat, lng]) => ({ id, name, chain: chains[c], lat, lng })));
+    p.catch(() => tileLoading.delete(key));
+    tileLoading.set(key, p);
+  }
+  return tileLoading.get(key);
+}
+
+// 前もって作ったデータで探す。範囲外（駅・バス停から遠い所）や読めなかったときは null
+async function storesFromData(points, radiusM) {
+  const index = await loadStoreIndex().catch((e) => {
+    console.warn('店舗データの一覧を読めません', e);
+    return null;
+  });
+  if (!index) return null;
+  const keys = tilesAround(points, radiusM, index.tile);
+  if (!keys.every((k) => k in index.tiles)) return null;
+  try {
+    const rows = await Promise.all(keys.filter((k) => index.tiles[k] > 0).map((k) => loadTile(k, index.chains)));
+    return rows.flat().filter((s) => points.some((p) => haversine(p, s) <= radiusM));
+  } catch (e) {
+    console.warn('店舗データを読めないので、Overpass に問い合わせます', e);
+    return null;
+  }
+}
+
+export async function storeDataDate() {
+  return (await loadStoreIndex().catch(() => null))?.generatedAt ?? '';
+}
+
+// ===== 範囲外だけ公開 Overpass サーバーに問い合わせる =====
+// 1 つずつ順に試すと、遅いサーバーの時間切れを待つあいだに失敗していた（2026-09-15 の実測: mail.ru は 11〜18 秒で返るのに 10 秒で打ち切っていた）。
+// そこで最初の 2 つに同時に問い合わせて先に返った方を使い、どちらもだめなら残りを試す
+const OVERPASS_FIRST = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+const OVERPASS_REST = ['https://overpass.kumi.systems/api/interpreter'];
+const OVERPASS_TIMEOUT = 25000;
+
+async function storesFromOverpass(points, radiusM, { timeoutScale, signal }) {
   const parts = points.map((p) => `nwr["shop"="convenience"](around:${Math.round(radiusM)},${p.lat.toFixed(6)},${p.lng.toFixed(6)});`);
   const query = `[out:json][timeout:${25 * timeoutScale}];(${parts.join('')});out center tags;`;
   const errors = [];
-  const cancelled = () => new CancelError('店舗の検索を中断しました');
-  for (const { url, timeout } of OVERPASS_ENDPOINTS) {
-    if (signal?.aborted) throw cancelled();
-    const host = new URL(url).hostname;
-    try {
-      const json = await fetchJson(url, { method: 'POST', body: new URLSearchParams({ data: query }), signal }, timeout * timeoutScale);
+  const ask = (url, sig) => fetchJson(url, { method: 'POST', body: new URLSearchParams({ data: query }), signal: sig }, OVERPASS_TIMEOUT * timeoutScale)
+    .then((json) => {
       // 混雑時は HTTP 200 のまま remark にエラーが入り、結果が空や途中までになることがある
       if (/runtime error|timed out|rate_limited|out of memory/i.test(json.remark ?? '')) throw new Error(json.remark);
       return dedupe(json.elements.map(toStore).filter(Boolean));
-    } catch (e) {
+    })
+    .catch((e) => {
+      console.warn(url, e);
+      errors.push(`${new URL(url).hostname}: ${e.name === 'AbortError' ? 'タイムアウト' : e.name === 'TypeError' ? '接続できません' : e.message}`);
+      throw e;
+    });
+
+  const race = new AbortController();
+  const stop = () => race.abort();
+  signal?.addEventListener('abort', stop);
+  try {
+    return await Promise.any(OVERPASS_FIRST.map((url) => ask(url, race.signal)));
+  } catch {
+    if (signal?.aborted) throw cancelled();
+  } finally {
+    race.abort(); // 遅かった方の問い合わせを止める
+    signal?.removeEventListener('abort', stop);
+  }
+  for (const url of OVERPASS_REST) {
+    if (signal?.aborted) throw cancelled();
+    try {
+      return await ask(url, signal);
+    } catch {
       if (signal?.aborted) throw cancelled();
-      console.warn(host, e);
-      errors.push(`${host}: ${e.name === 'AbortError' ? 'タイムアウト' : e.name === 'TypeError' ? '接続できません' : e.message}`);
     }
   }
   throw new Error(`店舗データのサーバーが混雑しています。少し待ってから再検索してください。（${errors.join(' / ')}）`);
+}
+
+// 複数の駅それぞれの周り radiusM メートルの店を探す
+// timeoutScale: Overpass に問い合わせるとき、広い範囲（エリア検索の半径 10km など）は待ち時間を伸ばす
+// signal: 利用者が「中断」を押したら止める（CancelError）
+export async function fetchStoresAround(points, radiusM, { timeoutScale = 1, signal } = {}) {
+  const found = await storesFromData(points, radiusM);
+  if (signal?.aborted) throw cancelled();
+  return found ?? storesFromOverpass(points, radiusM, { timeoutScale, signal });
 }
 
 function toStore(el) {

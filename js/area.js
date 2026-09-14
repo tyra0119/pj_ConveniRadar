@@ -1,9 +1,9 @@
 // エリア巡回モード: 中心と半径の中から、終了時刻までに回れる店が多くなるように、拠点（駅・バス停）と順番を選ぶ。
 // ここで使う移動時間は見積もり。選んだ順番を行程に入れたあと、実際の時刻表での計画は plan.js の buildPlan が作る
-import { portAccess } from './bike.js?v=9c449be1';
-import { commonBusPatterns } from './bus.js?v=9c449be1';
-import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, commonRailways } from './plan.js?v=9c449be1';
-import { haversine } from './util.js?v=9c449be1';
+import { portAccess } from './bike.js?v=7fdcd74d';
+import { commonBusPatterns } from './bus.js?v=7fdcd74d';
+import { WALK_FACTOR, WALK_HOP_MAX, WALK_SPEED, commonRailways } from './plan.js?v=7fdcd74d';
+import { haversine } from './util.js?v=7fdcd74d';
 
 const RAIL_SPEED = 550; // 駅間の見積もりの速さ（m/分 ≈ 33km/h、停車込み）
 const RAIL_WAIT = 5; // 列車を待つ時間の見積もり（分）
@@ -25,33 +25,26 @@ function collectBases({ net, bus, center, radiusM }) {
   return bases;
 }
 
-// 店を一番近い拠点（歩く範囲以内）に割り当てる。数千店×数百拠点なので、格子に分けて近くの拠点だけ比べる
-function assignToBases(stores, bases, walkRadiusM) {
-  const cell = walkRadiusM / 111000; // 緯度 1 度 ≈ 111km。経度方向は cos(緯度) 倍に縮むので、±2 マスで半径を覆える
-  const key = (y, x) => `${y}|${x}`;
-  const grid = new Map();
-  for (const b of bases) {
-    b.stores = [];
-    const k = key(Math.floor(b.lat / cell), Math.floor(b.lng / cell));
-    grid.set(k, [...(grid.get(k) ?? []), b]);
-  }
+// 範囲内の店を、一番近い拠点に割り当てる。エリア検索は「エリアの範囲内の話」なので、拠点から歩く距離に上限は付けない
+// （2026-09-15 利用者の指摘。以前は拠点から 500m 以内の店だけで、駅・バス停のまわりの話になっていた）。
+// 数千店×数百〜千拠点なので、比べるのは平面に近似した距離の 2 乗（大小だけ分かればよい）
+function assignToBases(stores, bases) {
+  for (const b of bases) b.stores = [];
+  if (!bases.length) return [];
   for (const s of stores) {
-    const cy = Math.floor(s.lat / cell);
-    const cx = Math.floor(s.lng / cell);
-    let best = null;
+    const k = Math.cos((s.lat * Math.PI) / 180);
+    let best = bases[0];
     let bestD = Infinity;
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        for (const b of grid.get(key(cy + dy, cx + dx)) ?? []) {
-          const d = haversine(b, s);
-          if (d < bestD) {
-            bestD = d;
-            best = b;
-          }
-        }
+    for (const b of bases) {
+      const dy = b.lat - s.lat;
+      const dx = (b.lng - s.lng) * k;
+      const d = dy * dy + dx * dx;
+      if (d < bestD) {
+        bestD = d;
+        best = b;
       }
     }
-    if (best && bestD <= walkRadiusM) best.stores.push(s);
+    best.stores.push(s);
   }
   return bases.filter((b) => b.stores.length);
 }
@@ -99,7 +92,7 @@ function travel(ctx, a, b) {
       mode = m;
     }
   };
-  if (d * WALK_FACTOR <= WALK_HOP_MAX) take((d * WALK_FACTOR) / WALK_SPEED, 'walk');
+  if (d * WALK_FACTOR <= ctx.walkMax) take((d * WALK_FACTOR) / WALK_SPEED, 'walk');
   if (ctx.modes.rail && a.kind === 'rail' && b.kind === 'rail' && commonRailways(ctx.net, a.id, b.id).length) {
     take(ctx.transfer + RAIL_WAIT + (d * RAIL_FACTOR) / RAIL_SPEED, 'rail');
   }
@@ -133,7 +126,9 @@ function makeBikeAccess() {
  * いまの拠点から、「回れる店の数 ÷（移動＋回る時間）」が一番大きい拠点を、終了時刻まで足していく
  */
 function chooseRoute({ net, bases, start, startMin, deadline, dwell, transfer, modes, bikeAccess }) {
-  const ctx = { net, modes, transfer, bikeAccess, cache: new Map() };
+  // 移動手段を全部外したときは徒歩だけで案内するので、停留所の間を歩く距離に上限を付けない
+  const walkMax = !modes.rail && !modes.bus && !modes.bike ? Infinity : WALK_HOP_MAX;
+  const ctx = { net, modes, transfer, bikeAccess, walkMax, cache: new Map() };
   for (const b of new Set([...bases, start])) profile(b, dwell);
 
   const first = fits(start, deadline - startMin);
@@ -164,11 +159,11 @@ function chooseRoute({ net, bases, start, startMin, deadline, dwell, transfer, m
 }
 
 /**
- * center: { lat, lng }、radiusM: 範囲、stores: 候補の店（チェーン・記録済みで絞ったもの）、walkRadiusM: 拠点から歩く範囲
+ * center: { lat, lng }、radiusM: 範囲、stores: 候補の店（範囲の中で、チェーン・記録済みで絞ったもの）
  * startMin / deadline: 中心にいる時刻と終了時刻（分）
  * 返り値: { start, walkToStart, route: [{ base, count, arrive, travel }], endMin, visited, bases }
  */
-export function planAreaRoute({ net, bus, center, radiusM, stores, walkRadiusM, startMin, deadline, dwell, transfer, modes }) {
+export function planAreaRoute({ net, bus, center, radiusM, stores, startMin, deadline, dwell, transfer, modes }) {
   const all = collectBases({ net, bus, center, radiusM });
   if (!all.length) throw new Error('範囲内に駅・バス停がありません。半径を広げてください');
 
@@ -182,11 +177,12 @@ export function planAreaRoute({ net, bus, center, radiusM, stores, walkRadiusM, 
       start = b;
     }
   }
-  if (startD * WALK_FACTOR > WALK_HOP_MAX) {
+  const walkOnly = !modes.rail && !modes.bus && !modes.bike;
+  if (!walkOnly && startD * WALK_FACTOR > WALK_HOP_MAX) {
     throw new Error(`中心から歩いて行ける駅・バス停がありません（一番近い ${start.name} まで約${(startD / 1000).toFixed(1)}km）。中心を駅の近くにしてください`);
   }
 
-  const bases = assignToBases(stores, all, walkRadiusM);
+  const bases = assignToBases(stores, all);
   const walkToStart = walkMin(center, start);
   const result = chooseRoute({
     net,
@@ -199,6 +195,6 @@ export function planAreaRoute({ net, bus, center, radiusM, stores, walkRadiusM, 
     modes,
     bikeAccess: modes.bike ? makeBikeAccess() : null,
   });
-  if (!result.visited) throw new Error('終了時刻までに回れる店が見つかりませんでした。終了時刻を遅くするか、半径・駅から歩く範囲を広げてください');
+  if (!result.visited) throw new Error('終了時刻までに回れる店が見つかりませんでした。終了時刻を遅くするか、半径を広げてください');
   return { start, walkToStart, ...result, bases: bases.length };
 }

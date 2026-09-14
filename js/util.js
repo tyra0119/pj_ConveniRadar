@@ -67,6 +67,42 @@ export function closeNotice() {
   if (box) box.hidden = true;
 }
 
+// 確かめてから進める操作（中央のカード）。OK なら true、キャンセル・暗い所・Esc なら false
+export function ask(message, { title = '確認', icon = '⚠', okLabel = 'OK', cancelLabel = 'キャンセル', danger = false } = {}) {
+  const box = $('#ask');
+  if (!box) return Promise.resolve(window.confirm(message));
+  $('#ask-icon').textContent = icon;
+  $('#ask-title').textContent = title;
+  $('#ask-text').textContent = message;
+  const ok = $('#ask-ok');
+  const cancel = $('#ask-cancel');
+  ok.textContent = okLabel;
+  cancel.textContent = cancelLabel;
+  ok.classList.toggle('danger', danger);
+  ok.classList.toggle('primary', !danger);
+  box.hidden = false;
+  cancel.focus();
+  return new Promise((resolve) => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') done(false);
+    };
+    function done(value) {
+      box.hidden = true;
+      ok.onclick = null;
+      cancel.onclick = null;
+      box.onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve(value);
+    }
+    ok.onclick = () => done(true);
+    cancel.onclick = () => done(false);
+    box.onclick = (e) => {
+      if (e.target === box) done(false);
+    };
+    document.addEventListener('keydown', onKey);
+  });
+}
+
 // 利用者が止めた（「中断」を押した）ときのエラー。失敗ではないので、中央の知らせではなく小さく知らせる
 export class CancelError extends Error {
   constructor(message = '中断しました') {

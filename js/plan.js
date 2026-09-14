@@ -1,9 +1,9 @@
 // 巡回計画: 停留所（駅・バス停）で降りる → 徒歩で店を回る → 戻る → 電車・バス・徒歩で次の停留所へ
-import { findBikeRide } from './bike.js?v=9c449be1';
-import { busData, commonBusPatterns, findBusRide, loadBus } from './bus.js?v=9c449be1';
-import { findRide, loadNetwork } from './odpt.js?v=9c449be1';
-import { solveTsp } from './tsp.js?v=9c449be1';
-import { fmtMin, haversine } from './util.js?v=9c449be1';
+import { findBikeRide } from './bike.js?v=7fdcd74d';
+import { busData, commonBusPatterns, findBusRide, loadBus } from './bus.js?v=7fdcd74d';
+import { findRide, loadNetwork } from './odpt.js?v=7fdcd74d';
+import { solveTsp } from './tsp.js?v=7fdcd74d';
+import { fmtMin, haversine } from './util.js?v=7fdcd74d';
 
 export const WALK_SPEED = 80; // m/分（不動産広告の徒歩表示と同じ基準）
 export const WALK_FACTOR = 1.3; // 直線距離 → 道のりの係数（道路データを使わない概算）
@@ -77,9 +77,10 @@ export function commonRailways(net, fromId, toId) {
 
 /**
  * 2 つの停留所の間で使える移動手段（表示と計画の両方で使う）。
- * rail: 乗り換えなしの路線、bus: 両方に停まる系統、walk: 歩ける距離なら { dist, min }
+ * rail: 乗り換えなしの路線、bus: 両方に停まる系統、walk: 歩ける距離（道のり walkMax 以内）なら { dist, min }
+ * walkMax: 移動手段を全部外して徒歩だけで案内するときは Infinity
  */
-export function hopOptions(net, fromId, toId) {
+export function hopOptions(net, fromId, toId, walkMax = WALK_HOP_MAX) {
   const a = stopOf(net, fromId);
   const b = stopOf(net, toId);
   if (!a || !b || a === b) return { a, b, rail: [], bus: [], walk: null, dist: 0 };
@@ -90,7 +91,7 @@ export function hopOptions(net, fromId, toId) {
     b,
     rail: !isBus(a) && !isBus(b) ? commonRailways(net, a.id, b.id) : [],
     bus: isBus(a) && isBus(b) ? commonBusPatterns(a, b) : [],
-    walk: dist <= WALK_HOP_MAX ? { dist, min: dist / WALK_SPEED } : null,
+    walk: dist <= walkMax ? { dist, min: dist / WALK_SPEED } : null,
     dist,
   };
 }
@@ -101,8 +102,10 @@ export function hopOptions(net, fromId, toId) {
  * startMin: 最初の停留所にいる時刻（その日の 0:00 からの分）
  * deadline: 終了時刻（分）。この時刻までに停留所へ戻れるよう、間に合わない店を外し、間に合わない停留所へは行かない。null なら制限なし
  */
-// modes: 使う移動手段 { rail, bus, bike }。徒歩（1.5km 以内）は常に使う
+// modes: 使う移動手段 { rail, bus, bike }。徒歩（1.5km 以内）は常に使う。
+// 全部外したときは徒歩だけで案内する（2026-09-15 利用者の指示）ので、停留所の間を歩く距離に上限を付けない
 export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer, day, deadline = null, modes = { rail: true, bus: true, bike: false } }) {
+  const walkMax = !modes.rail && !modes.bus && !modes.bike ? Infinity : WALK_HOP_MAX;
   const net = await loadNetwork();
   if (trip.some((t) => String(t.id).startsWith('bus:'))) await loadBus();
   const stops = [];
@@ -136,7 +139,7 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
       break;
     }
 
-    const opt = hopOptions(net, station.id, next.id);
+    const opt = hopOptions(net, station.id, next.id, walkMax);
     const earliest = clock + transfer;
     const tasks = [
       ...(modes.rail ? opt.rail : []).map((l) => findRide({ railway: l.railway.id, from: l.from, to: l.to, earliest, day })
@@ -178,7 +181,9 @@ export async function buildPlan({ trip, storesByStop, startMin, dwell, transfer,
   }
 
   const visited = stops.reduce((n, s) => n + s.visits.length, 0);
-  const walk = stops.reduce((n, s) => n + s.visits.reduce((m, v) => m + v.walkMin, 0) + (s.backLeg?.min ?? 0), 0);
+  // 歩く時間には、停留所と停留所の間を歩いた分も入れる（徒歩だけで案内すると、店を回る分しか数えず「0分」になっていた）
+  const walk = stops.reduce((n, s) => n + s.visits.reduce((m, v) => m + v.walkMin, 0) + (s.backLeg?.min ?? 0)
+    + (s.ride?.mode === 'walk' ? s.ride.arr - s.ride.dep : 0), 0);
   const error = stops.find((s) => s.error)?.error ?? null;
   return {
     stops,
