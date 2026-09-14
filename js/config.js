@@ -13,4 +13,4 @@ export const ODPT_SOURCES = {
 };
 
 // data/ の JSON に付ける版。tools/publish.py が中身のハッシュに置き換える
-export const DATA_V = '?v=f1eaffbd';
+export const DATA_V = '?v=df487c55';

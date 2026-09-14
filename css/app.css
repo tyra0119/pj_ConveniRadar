@@ -416,6 +416,38 @@ footer a { color: inherit; }
   border-left: 5px solid var(--c, var(--primary));
 }
 .tl-ride.bus { border-left-style: dashed; }
+
+/* 移動の行と札（徒歩・電車・バス・自転車）。行の左の線は地図の線と同じ見た目 */
+.mode-chip {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+  align-items: center;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+  color: #fff;
+  white-space: nowrap;
+  background: var(--c);
+  border-radius: 999px;
+}
+.mode-chip.sm { padding: 0 6px; font-size: 11px; line-height: 1.5; }
+.leg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 4px 13px;
+  padding: 6px 0 6px 14px;
+  border-left: 5px solid var(--c);
+}
+.leg.walk { border-left-style: dotted; }
+.leg.bus { border-left-style: dashed; }
+.leg-head { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.mode-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--muted); }
+.line-sample { display: inline-block; width: 24px; height: 0; vertical-align: middle; border-top: 4px solid var(--c); }
+.line-sample.dashed { border-top-style: dashed; }
+.line-sample.dotted { border-top-style: dotted; }
 .tl-ride.bike { border-left-style: double; border-left-width: 6px; }
 .modes { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; }
 .modes label { display: flex; gap: 6px; align-items: center; }
@@ -500,30 +532,38 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
 /* 選択式のボタン（エリア検索の中心: 現在地／地図の中心） */
 .btn.toggle[aria-pressed="true"] { color: #fff; background: var(--primary); border-color: var(--primary); }
 
-/* 検索中・計算中の表示（app.js の setBusy）。操作できない理由を画面の上に出す */
-.busy-banner {
+/* 検索中・計算中の表示（app.js の setBusy）。
+   画面の上に小さく出すだけでは気づかれなかった（2026-09-14）ので、画面全体を暗くして中央に出す。暗い間は何も押せない */
+.busy-overlay {
   position: fixed;
-  top: calc(10px + env(safe-area-inset-top));
-  left: 50%;
+  inset: 0;
   z-index: 2100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(29, 35, 48, .35);
+}
+.busy-card {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 12px;
   align-items: center;
-  max-width: calc(100% - 24px);
-  padding: 10px 16px;
-  font-size: 14px;
-  color: #fff;
-  background: rgba(11, 114, 133, .96);
-  border-radius: 999px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
-  transform: translateX(-50%);
+  max-width: 320px;
+  padding: 20px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .25);
 }
 .spinner {
   flex: none;
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, .4);
-  border-top-color: #fff;
+  width: 36px;
+  height: 36px;
+  border: 4px solid rgba(11, 114, 133, .2);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin .8s linear infinite;
 }
