@@ -634,6 +634,17 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
 .notice-card { max-width: 360px; }
 .notice-icon { font-size: 34px; line-height: 1; }
 #notice-text { margin: 0; font-size: 14px; font-weight: 400; white-space: pre-wrap; }
+
+/* 全部クリア（上のバーのボタンと確認のカード） */
+.topbar-btn { flex: none; margin-left: auto; padding: 4px 10px; font: inherit; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer; background: rgba(255, 255, 255, .15); border: 1px solid rgba(255, 255, 255, .6); border-radius: 999px; }
+.topbar-btn:hover { background: rgba(255, 255, 255, .28); }
+@media (max-width: 420px) { .topbar h1 { font-size: 15px; } }
+.btn.danger { color: #fff; background: var(--ng); border-color: var(--ng); }
+.confirm-card { max-width: 380px; }
+.confirm-list { margin: 0; font-size: 13.5px; font-weight: 400; text-align: left; }
+.confirm-card .check { font-size: 13.5px; font-weight: 400; text-align: left; }
+.confirm-actions { display: flex; gap: 8px; width: 100%; }
+.confirm-actions .btn { flex: 1; }
 .subhead { margin: 6px 0 0; font-size: 14px; }
 .card-body { display: flex; flex-direction: column; gap: 10px; }
 

@@ -7,12 +7,13 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=22425172">
+  <link rel="stylesheet" href="css/app.css?v=53ca199a">
 </head>
 <body>
   <header class="topbar">
     <h1>🚃 コンビニ巡回ルート 電車版</h1>
     <span class="unofficial">非公式</span>
+    <button id="btn-clear-all" class="topbar-btn" type="button" title="行程・計画・見つけた店をまとめて消す">🗑 クリア</button>
   </header>
 
   <div id="map"></div>
@@ -218,9 +219,22 @@
       <button id="notice-ok" class="btn primary block" type="button">OK</button>
     </div>
   </div>
+  <!-- 全部クリアの確認。記録と設定は、チェックを入れたときだけ消す -->
+  <div id="confirm" class="busy-overlay notice-overlay" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" hidden>
+    <div class="busy-card notice-card confirm-card">
+      <div class="notice-icon" aria-hidden="true">🗑</div>
+      <b id="confirm-title">全部クリアしますか？</b>
+      <p class="confirm-list">消すもの：行程と計画（エリア検索・駅検索の両方）、エリアの中心、見つけた店、計画から外した店<br>残すもの：設定（くじ名・コンビニ・時刻など）、くじの記録</p>
+      <label class="check"><input id="clear-everything" type="checkbox"> 設定とくじの記録も消して、最初の状態に戻す（元に戻せません）</label>
+      <div class="confirm-actions">
+        <button id="clear-cancel" class="btn" type="button">キャンセル</button>
+        <button id="clear-ok" class="btn danger" type="button">クリアする</button>
+      </div>
+    </div>
+  </div>
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=22425172"></script>
+  <script type="module" src="js/app.js?v=53ca199a"></script>
 </body>
 </html>

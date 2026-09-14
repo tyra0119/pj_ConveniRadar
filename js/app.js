@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=22425172';
-import { busData, loadBus } from './bus.js?v=22425172';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=22425172';
-import { planAreaRoute } from './area.js?v=22425172';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=22425172';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=22425172';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=22425172';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=22425172';
-import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=22425172';
+import { ODPT_SOURCES } from './config.js?v=53ca199a';
+import { busData, loadBus } from './bus.js?v=53ca199a';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=53ca199a';
+import { planAreaRoute } from './area.js?v=53ca199a';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=53ca199a';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=53ca199a';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=53ca199a';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=53ca199a';
+import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=53ca199a';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -1341,6 +1341,58 @@ $('#skip-recorded').addEventListener('change', (e) => {
   db.settings.skipRecorded = e.target.checked;
   save();
 });
+
+// ===== 全部クリア =====
+// 行程・計画（両方の探し方）・エリアの中心・見つけた店・外した店をまとめて消す（2026-09-14 利用者の指示）。
+// 設定とくじの記録は、確認のチェックを入れたときだけ消す（記録は実績として残したいことが多く、消すと戻せない）
+function openClearAll() {
+  if (blockedWhileSearching()) return;
+  $('#clear-everything').checked = false;
+  $('#clear-ok').textContent = 'クリアする';
+  $('#confirm').hidden = false;
+  $('#clear-cancel').focus();
+}
+
+function closeClearAll() {
+  $('#confirm').hidden = true;
+}
+
+function clearAll(everything) {
+  const mode = db.ui.mode === 'area' ? 'area' : 'station';
+  const keep = everything ? {} : {
+    settings: db.settings,
+    records: db.records,
+    ui: { ...DEFAULTS.ui, mode },
+    tripMode: mode,
+    area: { ...DEFAULTS.area, radiusKm: db.area.radiusKm },
+  };
+  for (const k of Object.keys(db)) delete db[k];
+  Object.assign(db, structuredClone(DEFAULTS), keep);
+  planTimeTouched = false;
+  planOpen.clear();
+  navOpenStore = null;
+  $('#station-search').value = '';
+  save();
+  syncControls();
+  renderStationResults();
+  renderAll();
+  refreshTrainInfo();
+  setTab('settings');
+  toast(everything ? '最初の状態に戻しました' : '行程・計画・見つけた店をクリアしました（設定と記録は残しています）', 5000);
+}
+
+$('#btn-clear-all').addEventListener('click', openClearAll);
+$('#clear-cancel').addEventListener('click', closeClearAll);
+$('#clear-everything').addEventListener('change', (e) => {
+  $('#clear-ok').textContent = e.target.checked ? 'すべて消す' : 'クリアする';
+});
+$('#clear-ok').addEventListener('click', () => {
+  const everything = $('#clear-everything').checked;
+  closeClearAll();
+  clearAll(everything);
+});
+$('#confirm').addEventListener('click', (e) => { if (e.target.id === 'confirm') closeClearAll(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#confirm').hidden) closeClearAll(); });
 
 $('#btn-reset-records').addEventListener('click', () => {
   if (!confirm(`「${campaignKey()}」の記録をすべて消去しますか？`)) return;
