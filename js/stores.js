@@ -1,5 +1,5 @@
 // コンビニの検索（OpenStreetMap / Overpass）。チェーン判定と重複除去は lawson/app.js から移したもの
-import { fetchJson, haversine } from './util.js?v=6da7108a';
+import { fetchJson, haversine } from './util.js?v=4fa1e28a';
 
 // icon はチェーンの配色をもとにした簡易アイコン（公式ロゴではない）
 export const CHAINS = {
@@ -44,9 +44,10 @@ export const STATUSES = {
   skip: { label: 'スキップ', icon: '⏭', tone: 'skip' },
 };
 
-// 公開 Overpass サーバーは混雑すると 504 やタイムアウトになるため、応答の速い順に試す
+// 公開 Overpass サーバーは混雑すると 504 やタイムアウトになるため、応答の速い順に試す。
+// maps.mail.ru は応答しないまま待たされることがある（2026-09-14 に 15 秒切れが続いた）ので短めに切り上げる
 const OVERPASS_ENDPOINTS = [
-  { url: 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', timeout: 15000 },
+  { url: 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', timeout: 10000 },
   { url: 'https://overpass-api.de/api/interpreter', timeout: 15000 },
   { url: 'https://overpass.kumi.systems/api/interpreter', timeout: 30000 },
 ];

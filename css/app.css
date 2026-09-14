@@ -406,6 +406,20 @@ footer a { color: inherit; }
 }
 .tl-error { padding: 8px 10px; font-size: 13.5px; color: var(--warn); background: #fff4e6; border-radius: 8px; }
 
+/* 店舗を検索し直す案内（半径スライダーの下） */
+.store-hint { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 10px; font-size: 13px; color: var(--warn); background: #fff4e6; border-radius: 8px; }
+.store-hint.quiet { color: var(--muted); background: var(--bg); }
+.store-hint:empty { display: none; }
+
+/* 店舗の検索中は、行程・店舗・巡回の操作を止める（app.js の setSearching） */
+body.searching .trip-list button,
+body.searching .results button,
+body.searching .store-list button,
+body.searching .store-list input,
+body.searching .stale-banner button,
+body.searching #plan-list button,
+body.searching #plan-list input { pointer-events: none; opacity: .45; }
+
 /* 計画が古くなったとき */
 .stale-banner { display: flex; flex-direction: column; gap: 8px; padding: 10px; font-size: 13.5px; color: var(--warn); background: #fff4e6; border: 1px solid #ffc078; border-radius: 10px; }
 #nav-card.stale #plan-list, #nav-card.stale #btn-next { opacity: .5; }

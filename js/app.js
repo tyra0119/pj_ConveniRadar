@@ -1,9 +1,9 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=6da7108a';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=6da7108a';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=6da7108a';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=6da7108a';
-import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=6da7108a';
+import { ODPT_SOURCES } from './config.js?v=4fa1e28a';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName, trainInformation, trainTypeTitle } from './odpt.js?v=4fa1e28a';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways } from './plan.js?v=4fa1e28a';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=4fa1e28a';
+import { $, esc, fmtDist, fmtDur, fmtMin, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=4fa1e28a';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -71,6 +71,7 @@ function markPlanStale() {
 
 // ids は駅 ID でも駅グループ ID でもよい。行程には駅グループ（乗り換えできる 1 つの駅）で入れる
 function addStations(ids) {
+  if (blockedWhileSearching()) return;
   let added = 0;
   for (const id of ids.map((x) => net?.stopById.get(x)?.id ?? x)) {
     if (db.trip.at(-1)?.id === id) continue;
@@ -87,6 +88,7 @@ function addStations(ids) {
 }
 
 function moveTrip(i, delta) {
+  if (blockedWhileSearching()) return;
   const k = i + delta;
   if (k < 0 || k >= db.trip.length) return;
   [db.trip[i], db.trip[k]] = [db.trip[k], db.trip[i]];
@@ -122,7 +124,8 @@ function betweenStops(links) {
 }
 
 function fillBetween(i, k) {
-  const f = betweenStops(commonRailways(net, db.trip[i].id, db.trip[i + 1].id))[k];
+  if (blockedWhileSearching()) return;
+  const f =betweenStops(commonRailways(net, db.trip[i].id, db.trip[i + 1].id))[k];
   if (!f) return;
   db.trip.splice(i + 1, 0, ...f.stops.map((id) => ({ id })));
   markPlanStale();
@@ -134,6 +137,7 @@ function fillBetween(i, k) {
 }
 
 function removeTrip(i) {
+  if (blockedWhileSearching()) return;
   db.trip.splice(i, 1);
   markPlanStale();
   save();
@@ -166,6 +170,21 @@ function assignStores() {
   return groups;
 }
 
+// 店舗の検索中は、行程・半径・計画の操作を止める（検索中に駅や半径が変わると、何を探したかが食い違うため）
+let searching = false;
+function setSearching(on) {
+  searching = on;
+  document.body.classList.toggle('searching', on);
+  for (const el of document.querySelectorAll('#radius, #btn-search, #btn-plan, #station-search, #btn-clear-trip, #rw-select, #rw-from, #rw-to, input[name=chain]')) el.disabled = on;
+  $('#btn-add-range').disabled = on || !net?.railwayById.get($('#rw-select').value);
+}
+
+function blockedWhileSearching() {
+  if (!searching) return false;
+  toast('店舗を検索中です。終わるまでお待ちください');
+  return true;
+}
+
 // 店舗をまだ探していない駅（検索のあとに足した駅、半径を広げる前に探した駅）
 function unsearchedStations() {
   if (!net) return [];
@@ -184,7 +203,16 @@ async function searchStores({ onlyMissing = false } = {}) {
     : [...new Set(db.trip.map((t) => t.id))].map((id) => net.stopById.get(id)).filter(Boolean);
   if (!stations.length) return;
 
-  const found = await fetchStoresAround(stations, db.settings.radius);
+  // 検索中に半径を動かされても、実際に探した半径で「検索済み」を記録する
+  // （終わった時点の半径で記録すると、400m で探している間に 800m へ広げたとき、広げた分が探されないままになる）
+  const radius = db.settings.radius;
+  setSearching(true);
+  let found;
+  try {
+    found = await fetchStoresAround(stations, radius);
+  } finally {
+    setSearching(false);
+  }
   if (onlyMissing) {
     const known = new Set(db.stores.map((s) => s.id));
     db.stores.push(...found.filter((s) => !known.has(s.id)));
@@ -192,7 +220,7 @@ async function searchStores({ onlyMissing = false } = {}) {
     db.stores = found;
     db.searched = {};
   }
-  for (const s of stations) db.searched[s.id] = db.settings.radius;
+  for (const s of stations) db.searched[s.id] = Math.max(db.searched[s.id] ?? 0, radius);
   db.searchedAt = Date.now();
   markPlanStale();
   save();
@@ -561,6 +589,34 @@ function fillRangeSelects() {
   $('#btn-add-range').disabled = !rw;
 }
 
+// 半径や駅を変えたあと、店舗を検索し直す必要があるかを半径スライダーのすぐ下に出す
+let radiusDragging = false;
+function renderStoreHint(pending) {
+  const hint = $('#store-hint');
+  const stopIds = [...new Set(db.trip.map((t) => t.id))];
+  const widened = [...pending].some((id) => (db.searched[id] ?? 0) > 0); // 前に探した駅で、半径だけ足りない
+  const narrowed = stopIds.some((id) => (db.searched[id] ?? 0) > db.settings.radius);
+  let html = '';
+  let quiet = false;
+  if (!db.searchedAt) {
+    html = '';
+  } else if (pending.size && autoSearching) {
+    html = `🔍 ${widened ? '広げた半径' : '足した駅'}の分の店舗を検索しています…`;
+    quiet = true;
+  } else if (pending.size && radiusDragging) {
+    html = '指を離すと、広げた半径の分の店舗を検索します';
+    quiet = true;
+  } else if (pending.size) {
+    html = `<span>⚠ ${widened ? '半径を広げた' : '駅を足した'}ので、店舗を検索し直してください</span>
+      <button class="btn small primary" type="button" data-action="search-missing">🔍 検索し直す</button>`;
+  } else if (narrowed) {
+    html = '半径を狭めたので、範囲外の店舗は一覧と計画から外しています（検索し直す必要はありません）';
+    quiet = true;
+  }
+  hint.innerHTML = html;
+  hint.classList.toggle('quiet', quiet);
+}
+
 function renderStores() {
   layers.stores.clearLayers();
   storeMarkers.clear();
@@ -573,9 +629,7 @@ function renderStores() {
   const all = groups.flat();
   $('#store-count').textContent = all.length ? `${all.filter((s) => !db.excluded[s.id]).length} / ${all.length}` : '';
   const pending = new Set(unsearchedStations().map((s) => s.id));
-  $('#store-hint').textContent = !db.searchedAt || !pending.size ? ''
-    : autoSearching ? '追加した駅の店舗を検索しています…'
-      : '店舗を探していない駅があります。「店舗を検索」を押してください';
+  renderStoreHint(pending);
 
   const list = $('#store-list');
   if (!db.trip.length || !db.searchedAt) {
@@ -848,9 +902,19 @@ $('#btn-clear-trip').addEventListener('click', () => {
 });
 
 // 半径を広げたら、スライダーを離したときに広げた分を探す
-$('#radius').addEventListener('change', autoSearchMissing);
+$('#radius').addEventListener('change', () => {
+  radiusDragging = false;
+  renderStores();
+  autoSearchMissing();
+});
+
+$('#store-hint').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action=search-missing]');
+  if (btn) withBusy(btn, '検索中…', () => searchStores({ onlyMissing: true }));
+});
 
 $('#radius').addEventListener('input', (e) => {
+  radiusDragging = true;
   db.settings.radius = Number(e.target.value);
   $('#radius-out').textContent = db.settings.radius;
   $('#radius-walk').textContent = walkMinutes(db.settings.radius);

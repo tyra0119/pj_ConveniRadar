@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=6da7108a">
+  <link rel="stylesheet" href="css/app.css?v=4fa1e28a">
 </head>
 <body>
   <header class="topbar">
@@ -45,6 +45,7 @@
         <span>駅から半径 <output id="radius-out">600</output> m（徒歩 約<output id="radius-walk">10</output>分）</span>
         <input id="radius" type="range" min="200" max="1500" step="100" value="600">
       </label>
+      <div id="store-hint" class="store-hint"></div>
 
       <div class="chains">
         <label><input type="checkbox" name="chain" value="lawson"> <span class="chain-icon" data-chain="lawson"></span>ローソン</label>
@@ -55,7 +56,6 @@
       </div>
 
       <button id="btn-search" class="btn primary block" type="button">🔍 店舗を検索</button>
-      <p id="store-hint" class="small warn"></p>
       <p class="muted small">チェックを外した店舗は計画から除外されます。店舗は、いちばん近い行程の駅に割り当てます。</p>
       <ul id="store-list" class="store-list"></ul>
     </section>
@@ -111,6 +111,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=6da7108a"></script>
+  <script type="module" src="js/app.js?v=4fa1e28a"></script>
 </body>
 </html>
