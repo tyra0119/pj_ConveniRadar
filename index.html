@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=7add0f74">
+  <link rel="stylesheet" href="css/app.css?v=b42fc3b1">
 </head>
 <body>
   <header class="topbar">
@@ -81,7 +81,7 @@
         <button id="btn-clear-trip" class="btn block ghost" type="button">行程を空にする</button>
       </div>
 
-      <button class="btn primary block" type="button" data-goto="plan">次へ：計画へ →</button>
+      <button class="btn primary block" type="button" data-goto="stores">次へ：店舗へ →</button>
     </section>
 
     <section class="card" data-panel="stores">
@@ -102,7 +102,7 @@
         <button class="btn small ghost" type="button" data-action="close-all">▸ すべて閉じる</button>
       </div>
       <ul id="store-list" class="store-list"></ul>
-      <button class="btn block" type="button" data-goto="plan">次へ：計画を作る →</button>
+      <button class="btn primary block" type="button" data-goto="plan">次へ：計画へ →</button>
     </section>
 
     <section class="card" data-panel="plan">
@@ -183,6 +183,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=7add0f74"></script>
+  <script type="module" src="js/app.js?v=b42fc3b1"></script>
 </body>
 </html>
