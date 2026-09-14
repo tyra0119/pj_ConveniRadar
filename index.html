@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b7285">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <!-- CSS/JS の ?v= は tools/publish.py が公開時に付ける -->
-  <link rel="stylesheet" href="css/app.css?v=df487c55">
+  <link rel="stylesheet" href="css/app.css?v=e58db5ca">
 </head>
 <body>
   <header class="topbar">
@@ -101,6 +101,7 @@
 
     <section class="card" data-panel="plan">
       <h2><span class="step">3</span>計画</h2>
+      <div id="plan-stale"></div>
       <label class="field">
         <span>くじ・グッズ名（記録の単位）</span>
         <input id="campaign" type="text" placeholder="例：一番くじ ○○">
@@ -195,6 +196,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script type="module" src="js/app.js?v=df487c55"></script>
+  <script type="module" src="js/app.js?v=e58db5ca"></script>
 </body>
 </html>

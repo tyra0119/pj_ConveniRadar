@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=df487c55';
-import { busData, loadBus } from './bus.js?v=df487c55';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=df487c55';
-import { planAreaRoute } from './area.js?v=df487c55';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=df487c55';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=df487c55';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=df487c55';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=df487c55';
-import { $, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=df487c55';
+import { ODPT_SOURCES } from './config.js?v=e58db5ca';
+import { busData, loadBus } from './bus.js?v=e58db5ca';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=e58db5ca';
+import { planAreaRoute } from './area.js?v=e58db5ca';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=e58db5ca';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=e58db5ca';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=e58db5ca';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=e58db5ca';
+import { $, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=e58db5ca';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -932,6 +932,7 @@ function renderPlan() {
   $('#nav-body').hidden = !p;
   if (!p) {
     $('#plan-summary').innerHTML = '';
+    $('#plan-stale').innerHTML = '';
     $('#progress').textContent = '';
     $('#tab-badge-plan').textContent = '';
     $('#tab-badge-nav').textContent = '';
@@ -944,7 +945,7 @@ function renderPlan() {
   const usesChallenge = rides.some((r) => net?.railwayById.get(r.railway)?.src === 'chl');
   const firstName = stopName(p.stops[0]?.stationId);
 
-  $('#plan-summary').innerHTML = `
+  const summaryBody = `
     <div class="summary">
       <div><span class="big">${p.visited}</span><span class="label">店舗</span></div>
       <div><span class="big">${fmtDur(p.walkMin * 60)}</span><span class="label">歩く時間</span></div>
@@ -956,7 +957,15 @@ function renderPlan() {
     ${p.deadline != null ? `<p class="small">⏰ 終了時刻 ${fmtMin(p.deadline)}（駅に戻るまで）・ ${p.dropped ? `間に合わない ${p.dropped}店を外しました` : '選んだ店はすべて間に合います'}</p>` : ''}
     ${p.cutoff ? `<p class="small warn">⏰ ${esc(p.cutoff)}</p>` : ''}
     ${!p.complete ? `<p class="small warn">⚠ 途中までしか計画できませんでした。${esc(p.error ?? '')}</p>` : ''}
-    ${p.stale ? '<p class="small warn">⚠ 駅・店舗・設定が変わりました。計画を作り直してください</p>' : ''}`;
+    `;
+  // 古い計画の数字を、いまの計画のように並べない（「計画に古い情報が残っている」と指摘された 2026-09-14）。
+  // 一番上に作り直すよう出し、前の数字は畳んでおく
+  $('#plan-stale').innerHTML = p.stale
+    ? '<div class="stale-banner"><div>⚠ この計画は古くなっています。作ったあとに駅・店舗・設定が変わりました。下の「計画を作る」で作り直してください。</div></div>'
+    : '';
+  $('#plan-summary').innerHTML = p.stale
+    ? `<details class="old-plan"><summary class="small">前に作った計画を見る（古い）</summary>${summaryBody}</details>`
+    : summaryBody;
 
   // 地図: 駅から店を回る徒歩は破線、駅間の乗車は路線の色の実線
   p.stops.forEach((s, i) => {
@@ -1115,7 +1124,7 @@ function renderReport() {
 function renderRecordSummary() {
   const recs = Object.values(currentRecords()).filter((r) => r.status);
   $('#record-summary').textContent = recs.length
-    ? `記録：${Object.entries(STATUSES).map(([k, st]) => `${st.icon}${st.label} ${recs.filter((r) => r.status === k).length}`).join('　')}`
+    ? `このくじのこれまでの記録：${Object.entries(STATUSES).map(([k, st]) => `${st.icon}${st.label} ${recs.filter((r) => r.status === k).length}`).join('　')}`
     : '';
 }
 
@@ -1240,8 +1249,12 @@ for (const [id, key, max] of [['#dwell', 'dwell', 60], ['#transfer', 'transfer',
   });
 }
 
+// 日付・開始時刻は、利用者が変えていなければ、計画タブを開くたびに今に合わせる（setTab）。
+// ページを開いた時刻のままだと、しばらく置いてから計画を作ると過去の時刻から計画していた
+let planTimeTouched = false;
 for (const id of ['#plan-date', '#plan-start']) {
   $(id).addEventListener('change', () => {
+    planTimeTouched = true;
     markPlanStale();
     save();
     renderPlan();
@@ -1258,6 +1271,7 @@ document.querySelectorAll('input[name=mode]').forEach((el) => el.addEventListene
 
 function setDeadline(value) {
   db.settings.deadline = value;
+  db.settings.deadlineSetOn = value ? todayISO() : ''; // 入れた日が過ぎたら消す（起動時）
   $('#plan-deadline').value = value;
   markPlanStale();
   save();
@@ -1414,7 +1428,8 @@ function renderArea() {
       .addTo(layers.area);
   }
   const l = a.last;
-  $('#area-summary').innerHTML = !l || !isAreaMode() ? '' : `
+  // 見積もりは、それを元に作った計画が古くなっていないときだけ出す（中心や半径を変えたあとに前回の見積もりが残っていた）
+  $('#area-summary').innerHTML = !l || !isAreaMode() || !db.plan || db.plan.stale ? '' : `
     ${l.autoEnd ? `<p class="small">⏰ 終了時刻が空欄なので、開始から 3 時間（${fmtMin(l.autoEnd)} まで）で選びました</p>` : ''}
     <div class="summary">
       <div><span class="big">${l.chosen}</span><span class="label">駅・バス停</span></div>
@@ -1618,6 +1633,10 @@ function setTab(name) {
   document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.panel > [data-panel]').forEach((s) => s.classList.toggle('active', s.dataset.panel === tab));
   syncMapLayers();
+  if (tab === 'plan' && !planTimeTouched) {
+    $('#plan-date').value = todayISO();
+    $('#plan-start').value = nowHHMM();
+  }
   // 切り替えた画面の先頭が見えるように戻す（PC はパネルだけがスクロールし、スマホは画面全体がスクロールする）
   const panel = $('.panel');
   if (getComputedStyle(panel).overflowY === 'auto') {
@@ -1640,6 +1659,11 @@ document.addEventListener('click', (e) => {
 
 // ===== 起動 =====
 document.querySelectorAll('.chain-icon[data-chain]').forEach((el) => { el.innerHTML = CHAINS[el.dataset.chain].icon; });
+// 終了時刻は、入れた日が過ぎたら消す（前の日の終了時刻が残り、開始時刻より前でエラーになっていた）
+if (db.settings.deadline && db.settings.deadlineSetOn !== todayISO()) {
+  db.settings.deadline = '';
+  db.settings.deadlineSetOn = '';
+}
 if (db.ui.tab === 'area') db.ui.mode = 'area'; // 以前の「エリア」タブを開いていた保存データ
 // 以前の保存データは行程が 1 つだけ。作った方の探し方のものとして残し、いま選んでいる探し方の行程を出す
 swapModeState(db.ui.mode === 'area' ? 'area' : 'station');
