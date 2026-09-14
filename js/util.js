@@ -50,6 +50,23 @@ export function toast(msg, ms = 3000) {
   toastTimer = setTimeout(() => { el.hidden = true; }, ms);
 }
 
+// 見つからない・失敗したときの知らせ。画面下の小さい表示（toast）では分かりにくいと指摘された（2026-09-14）ので、
+// 検索中と同じく画面を暗くして中央に出し、OK を押すまで残す。成功の知らせは toast のまま
+export function notice(message, { title = 'お知らせ', icon = '⚠' } = {}) {
+  const box = $('#notice');
+  if (!box) return toast(message, 8000);
+  $('#notice-icon').textContent = icon;
+  $('#notice-title').textContent = title;
+  $('#notice-text').textContent = message;
+  box.hidden = false;
+  $('#notice-ok').focus();
+}
+
+export function closeNotice() {
+  const box = $('#notice');
+  if (box) box.hidden = true;
+}
+
 export async function fetchJson(url, options = {}, timeoutMs = 20000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -70,7 +87,7 @@ export async function withBusy(btn, label, fn) {
     return await fn();
   } catch (e) {
     console.error(e);
-    toast(e.name === 'AbortError' ? '通信がタイムアウトしました' : e.message, 8000);
+    notice(e.name === 'AbortError' ? '通信がタイムアウトしました。電波の良い所で、もう一度試してください' : e.message, { title: 'うまくいきませんでした' });
   } finally {
     btn.disabled = false;
     btn.textContent = original;

@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=e58db5ca';
-import { busData, loadBus } from './bus.js?v=e58db5ca';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=e58db5ca';
-import { planAreaRoute } from './area.js?v=e58db5ca';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=e58db5ca';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=e58db5ca';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=e58db5ca';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=e58db5ca';
-import { $, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=e58db5ca';
+import { ODPT_SOURCES } from './config.js?v=619d9080';
+import { busData, loadBus } from './bus.js?v=619d9080';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=619d9080';
+import { planAreaRoute } from './area.js?v=619d9080';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=619d9080';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=619d9080';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=619d9080';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=619d9080';
+import { $, closeNotice, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, notice, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=619d9080';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -298,7 +298,12 @@ async function searchStores({ onlyMissing = false } = {}) {
   const ids = new Set(stations.map((s) => s.id));
   const n = assignStores().reduce((k, g, i) => k + (ids.has(db.trip[i].id) ? g.length : 0), 0);
   const where = onlyMissing ? `${stations.map((s) => s.name).join('・')}：` : '';
-  toast(n ? `${where}${n}店舗見つかりました` : `${where}見つかりませんでした。半径を広げてください`, 4000);
+  if (n) {
+    toast(`${where}${n}店舗見つかりました`, 4000);
+  } else {
+    const kinds = db.settings.chains.map((k) => CHAINS[k].label).join('・') || '（種類が選ばれていません）';
+    notice(`${where}駅から ${walkRadius()}m 以内に、${kinds} が見つかりませんでした。\n半径を広げるか、「店舗」タブでコンビニの種類を増やしてください。`, { title: '店舗が見つかりませんでした', icon: '🔍' });
+  }
 }
 
 // 一度検索したあとに駅を足したり半径を広げたりしたら、足りない駅だけを自動で探す。
@@ -310,7 +315,7 @@ function autoSearchMissing() {
   autoSearching = searchStores({ onlyMissing: true })
     .then(() => true, (e) => {
       console.error(e);
-      toast(e.message, 8000);
+      notice(e.message, { title: '店舗を検索できませんでした' });
       return false;
     })
     .then((ok) => {
@@ -436,7 +441,8 @@ async function computePlanInner(fromIndex = 0, useNow = false) {
   fitPlan();
   refreshTrainInfo();
   setTab('nav');
-  toast(plan.complete ? `${plan.visited}店舗・${plan.stops.length}駅の計画を作りました` : `途中までしか計画できませんでした。${plan.error}`, plan.complete ? 5000 : 12000);
+  if (plan.complete) toast(`${plan.visited}店舗・${plan.stops.length}駅の計画を作りました`, 5000);
+  else notice(plan.error, { title: '途中までしか計画できませんでした' });
 }
 
 function toggleExcluded(id) {
@@ -1392,6 +1398,15 @@ $('#btn-report-copy').addEventListener('click', (e) => withBusy(e.currentTarget,
   toast('記録をコピーしました。メールや LINE に貼り付けて送れます');
 }));
 
+// 見つからない・失敗したときの知らせ（画面中央）を閉じる: OK・暗い所を押す・Esc
+$('#notice-ok').addEventListener('click', closeNotice);
+$('#notice').addEventListener('click', (e) => {
+  if (e.target.id === 'notice') closeNotice();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#notice').hidden) closeNotice();
+});
+
 // 運行情報の「更新」（行程と巡回の 2 か所にある）
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action=refresh-info]');
@@ -1700,7 +1715,7 @@ loadNetwork()
       })
       .catch((e) => {
         console.warn(e);
-        toast(`バス停のデータを読み込めませんでした（${e.message}）`, 8000);
+        notice(`バス停のデータを読み込めませんでした（${e.message}）。電車の駅だけで使えます。`, { title: 'データを読み込めませんでした' });
       });
     // 画面を開いている間は運行情報を取り直す（裏に回っているときは取らない）
     setInterval(() => {
@@ -1711,5 +1726,5 @@ loadNetwork()
   })
   .catch((e) => {
     console.error(e);
-    toast(`駅データを読み込めませんでした（${e.message}）`, 10000);
+    notice(`駅データを読み込めませんでした（${e.message}）。ページを読み込み直してください。`, { title: 'データを読み込めませんでした' });
   });

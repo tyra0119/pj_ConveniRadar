@@ -1,6 +1,6 @@
 // シェアサイクル（ODPT 経由の GBFS）: ポートの位置・台数と、停留所の間を自転車でつなぐ時間
-import { ODPT_SOURCES } from './config.js?v=e58db5ca';
-import { fetchJson, haversine } from './util.js?v=e58db5ca';
+import { ODPT_SOURCES } from './config.js?v=619d9080';
+import { fetchJson, haversine } from './util.js?v=619d9080';
 
 export const BIKE_SYSTEMS = [
   { id: 'docomo-cycle', label: 'ドコモ・バイクシェア' },

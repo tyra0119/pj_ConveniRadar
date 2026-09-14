@@ -572,6 +572,12 @@ body.searching #plan-list input { pointer-events: none; opacity: .45; }
   animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 見つからない・失敗したときの知らせ（util.js の notice）。検索中と同じく画面の中央に出し、OK を押すまで残す */
+.notice-overlay { z-index: 2200; }
+.notice-card { max-width: 360px; }
+.notice-icon { font-size: 34px; line-height: 1; }
+#notice-text { margin: 0; font-size: 14px; font-weight: 400; white-space: pre-wrap; }
 .subhead { margin: 6px 0 0; font-size: 14px; }
 .card-body { display: flex; flex-direction: column; gap: 10px; }
 
