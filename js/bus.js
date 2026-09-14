@@ -1,7 +1,7 @@
 // バス停と、バスの時刻表から「乗る便」を決める処理（電車の odpt.js にならう）
-import { DATA_V } from './config.js?v=72ab7fe1';
-import { calendarScore, odpt, serviceMin, specificSet } from './odpt.js?v=72ab7fe1';
-import { fetchJson, fmtMin, haversine, parseHHMM } from './util.js?v=72ab7fe1';
+import { DATA_V } from './config.js?v=f1eaffbd';
+import { calendarScore, odpt, serviceMin, specificSet } from './odpt.js?v=f1eaffbd';
+import { fetchJson, fmtMin, haversine, parseHHMM } from './util.js?v=f1eaffbd';
 
 // 同じ名前でこの距離以内のポール（のりば違い・事業者違い）は 1 つのバス停とみなす。
 // 駅（800m）より狭くするのは、バス停は同じ名前が近くの別の場所にもある（「泉町」など）ため

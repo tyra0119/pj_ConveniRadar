@@ -1,13 +1,13 @@
 // 画面: 保存データ・地図・描画・イベント（組み立ては lawson/app.js にならう）
-import { ODPT_SOURCES } from './config.js?v=72ab7fe1';
-import { busData, loadBus } from './bus.js?v=72ab7fe1';
-import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=72ab7fe1';
-import { planAreaRoute } from './area.js?v=72ab7fe1';
-import { loadBikeInfo, loadBikeStatus } from './bike.js?v=72ab7fe1';
-import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=72ab7fe1';
-import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=72ab7fe1';
-import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=72ab7fe1';
-import { $, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=72ab7fe1';
+import { ODPT_SOURCES } from './config.js?v=f1eaffbd';
+import { busData, loadBus } from './bus.js?v=f1eaffbd';
+import { buildReport, canShare, copyReport, mailtoUrl, shareReport } from './report.js?v=f1eaffbd';
+import { planAreaRoute } from './area.js?v=f1eaffbd';
+import { loadBikeInfo, loadBikeStatus } from './bike.js?v=f1eaffbd';
+import { dayProfile, loadNetwork, operatorTitle, railwayTitle, stationName as odptStationName, trainInformation, trainTypeTitle } from './odpt.js?v=f1eaffbd';
+import { WALK_FACTOR, WALK_SPEED, buildPlan, commonRailways, hopOptions } from './plan.js?v=f1eaffbd';
+import { CHAINS, STATUSES, fetchStoresAround } from './stores.js?v=f1eaffbd';
+import { $, esc, fmtDist, fmtDur, fmtMin, getPosition, haversine, nowHHMM, parseHHMM, toast, todayISO, walkNavUrl, withBusy } from './util.js?v=f1eaffbd';
 
 // ===== 設定 =====
 const STORAGE_KEY = 'conveniradar:v1';
@@ -463,9 +463,10 @@ const layers = {
 };
 const storeMarkers = new Map();
 
-const pinIcon = (color, text) => L.divIcon({
+// square: 行程の駅・バス停の番号。巡回の一覧の駅の番号（角の丸い四角）と同じ形にする
+const pinIcon = (color, text, square = false) => L.divIcon({
   className: 'pin-wrap',
-  html: `<div class="pin" style="--c:${color}">${esc(text)}</div>`,
+  html: `<div class="pin${square ? ' square' : ''}" style="--c:${color}">${esc(text)}</div>`,
   iconSize: [28, 28],
   iconAnchor: [14, 14],
   popupAnchor: [0, -14],
@@ -474,7 +475,7 @@ const pinIcon = (color, text) => L.divIcon({
 // 店舗マーカー: チェーンのアイコン＋右上に巡回順（訪問済みは ✓）
 const storeIcon = (chain, badge, { done = false, faded = false } = {}) => L.divIcon({
   className: 'pin-wrap',
-  html: `<div class="store-pin${done ? ' done' : ''}${faded ? ' faded' : ''}">${CHAINS[chain].icon}${badge ? `<span class="pin-badge">${esc(badge)}</span>` : ''}</div>`,
+  html: `<div class="store-pin${done ? ' done' : ''}${faded ? ' faded' : ''}">${CHAINS[chain].icon}${badge ? `<span class="pin-badge" style="--c:${CHAINS[chain].color}">${esc(badge)}</span>` : ''}</div>`,
   iconSize: [34, 34],
   iconAnchor: [17, 17],
   popupAnchor: [0, -17],
@@ -550,6 +551,24 @@ function stationPopup(st) {
     addStations([stop.id]);
   };
   return div;
+}
+
+// 店を地図の中心に移して、マーカーを点滅させる（巡回の店を押したとき・回る店の 🗺）
+let blinkTimer;
+function focusStore(id) {
+  const marker = storeMarkers.get(id);
+  if (!marker) return;
+  map.setView(marker.getLatLng(), Math.max(map.getZoom(), 16));
+  const el = marker.getElement();
+  if (el) {
+    el.classList.remove('blink');
+    void el.offsetWidth; // 続けて押したときも点滅をやり直す
+    el.classList.add('blink');
+    clearTimeout(blinkTimer);
+    blinkTimer = setTimeout(() => el.classList.remove('blink'), 2500);
+  }
+  // スマホの幅では地図が一覧の上にあるので、地図が見える位置まで戻す
+  if (window.matchMedia('(max-width: 899px)').matches) $('#map').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function storePopup(s) {
@@ -663,7 +682,7 @@ function renderTrip() {
     L.circle([st.lat, st.lng], {
       radius: walkRadius(), color: '#0b7285', weight: 1, fillOpacity: 0.05, interactive: false,
     }).addTo(layers.trip);
-    L.marker([st.lat, st.lng], { icon: pinIcon(st.kind === 'bus' ? BUS_COLOR : '#0b7285', nums.join('・')), zIndexOffset: 1000 })
+    L.marker([st.lat, st.lng], { icon: pinIcon(st.kind === 'bus' ? BUS_COLOR : '#0b7285', nums.join('・'), true), zIndexOffset: 1000 })
       .bindTooltip(st.name, { direction: 'top', offset: [0, -14] })
       .bindPopup(() => stationPopup(st))
       .addTo(layers.trip);
@@ -777,7 +796,8 @@ function renderStores() {
   for (const s of all) {
     const done = !!records[s.id]?.status;
     const marker = L.marker([s.lat, s.lng], {
-      icon: storeIcon(s.chain, done ? '✓' : planNo.get(s.id), { done, faded: !!db.excluded[s.id] }),
+      // 番号は巡回の一覧と同じ（チェーンの色の丸。回り終えたら灰色）。計画に無い記録済みの店だけ ✓
+      icon: storeIcon(s.chain, planNo.get(s.id) ?? (done ? '✓' : ''), { done, faded: !!db.excluded[s.id] }),
     }).bindPopup(() => storePopup(s)).addTo(layers.stores);
     storeMarkers.set(s.id, marker);
   }
@@ -800,7 +820,7 @@ function renderStores() {
       <li class="group" data-index="${i}">
         <button class="group-toggle" type="button" data-action="toggle-group" aria-expanded="${opened}">
           <span class="chev">${opened ? '▾' : '▸'}</span>
-          <span class="num" style="--c:var(--primary)">${i + 1}</span>
+          <span class="num" style="--c:${String(id).startsWith('bus:') ? BUS_COLOR : 'var(--primary)'}">${i + 1}</span>
           <span class="group-name">${esc(stopName(id))}</span>
           ${pending.has(id)
             ? `<span class="small warn">${autoSearching ? '検索中…' : '未検索'}</span>`
@@ -980,7 +1000,7 @@ function renderPlan() {
       <li class="tl-station${i === current ? ' current' : ''}">
         <button class="stop-toggle" type="button" data-action="toggle-stop" data-stop="${i}" aria-expanded="${opened}"${s.visits.length ? '' : ' disabled'}>
           <span class="chev">${s.visits.length ? (opened ? '▾' : '▸') : ''}</span>
-          <span class="num" style="--c:var(--primary)">${tripIndex >= 0 ? tripIndex + 1 : '—'}</span>
+          <span class="num" style="--c:${String(s.stationId).startsWith('bus:') ? BUS_COLOR : 'var(--primary)'}">${tripIndex >= 0 ? tripIndex + 1 : '—'}</span>
           <span class="stop-info">
             <span class="store-name">${esc(stopName(s.stationId))} ${i === current ? '<span class="here">回っているところ</span>' : ''}</span>
             <span class="muted small">${fmtMin(s.arrive)}${i === 0 ? 'から' : '着'} ・ ${s.visits.length ? `完了 ${doneHere}/${s.visits.length}店` : '店なし'}</span>
@@ -1270,11 +1290,8 @@ $('#store-list').addEventListener('click', (e) => {
     return;
   }
   const btn = e.target.closest('button[data-action=focus]');
-  const marker = storeMarkers.get(btn?.closest('[data-id]')?.dataset.id);
-  if (!marker) return;
-  map.setView(marker.getLatLng(), Math.max(map.getZoom(), 16));
-  marker.openPopup();
-  $('#map').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const id = btn?.closest('[data-id]')?.dataset.id;
+  if (id) focusStore(id);
 });
 
 $('#stale-banner').addEventListener('click', (e) => {
@@ -1284,7 +1301,12 @@ $('#stale-banner').addEventListener('click', (e) => {
 
 $('#plan-list').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
+  if (!btn) {
+    // 店の行（ボタン・メモ・ナビ以外）を押したら、地図でその店を示す
+    const row = e.target.closest('.stop[data-id]');
+    if (row && !e.target.closest('a, input, button')) focusStore(row.dataset.id);
+    return;
+  }
   if (btn.dataset.action === 'status') {
     const id = btn.closest('[data-id]')?.dataset.id;
     if (id) setStatus(id, btn.dataset.status);

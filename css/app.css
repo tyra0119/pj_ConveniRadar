@@ -268,7 +268,8 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary)
 .pin {
   display: grid;
   place-items: center;
-  width: 28px;
+  min-width: 28px;
+  padding: 0 4px;
   height: 28px;
   font-size: 13px;
   font-weight: 700;
@@ -279,6 +280,7 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary)
   box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
 }
 .pin.faded { opacity: .4; }
+.pin.square { border-radius: 7px; } /* 行程の駅・バス停。巡回の一覧の駅の番号と同じ形 */
 
 .store-pin {
   position: relative;
@@ -295,17 +297,26 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary)
   right: -8px;
   display: grid;
   place-items: center;
-  min-width: 19px;
-  height: 19px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 4px;
   font-size: 11px;
   font-weight: 700;
   color: #fff;
-  background: var(--accent);
+  background: var(--c, var(--accent)); /* チェーンの色。巡回の一覧の店の番号と同じ */
   border: 1.5px solid #fff;
-  border-radius: 10px;
+  border-radius: 999px;
 }
-.store-pin.done .pin-badge { background: #495057; }
+.store-pin.done .pin-badge { background: #868e96; } /* 回り終えた店。一覧の .stop.done .num と同じ灰色 */
+
+/* 巡回の店を押したとき、地図の店を点滅させる（app.js の focusStore） */
+.leaflet-marker-icon.blink { z-index: 5000 !important; }
+.leaflet-marker-icon.blink .store-pin { animation: blink .4s ease-in-out 6 alternate; }
+@keyframes blink {
+  from { transform: scale(1); filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5)); }
+  to { transform: scale(1.7); filter: drop-shadow(0 0 10px rgba(194, 37, 92, 1)); }
+}
+.route-list .stop { cursor: pointer; }
 
 .popup { display: flex; flex-direction: column; gap: 6px; min-width: 190px; }
 .popup hr { width: 100%; margin: 4px 0; border: none; border-top: 1px solid var(--line); }
@@ -397,7 +408,7 @@ footer a { color: inherit; }
   border-top: 2px solid var(--line);
 }
 .tl-station:first-child { border-top: none; }
-.tl-station .num { border-radius: 6px; }
+.tl-station .num { border-radius: 7px; }
 .tl-walk { padding: 6px 0 6px 38px; font-size: 13px; color: var(--muted); }
 .tl-ride {
   margin: 4px 0 4px 13px;
